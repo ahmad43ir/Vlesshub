@@ -1,0 +1,17 @@
+*.iml
+.gradle
+/local.properties
+/.idea
+.DS_Store
+/build
+*.apk
+*.jks
+keystore.properties
+agent_only.txt
+.env
+app/build/
+admin-app/build/
+app/.gradle/
+admin-app/.gradle/
+app/.kotlin/
+admin-app/.kotlin/
