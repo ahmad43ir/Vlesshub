@@ -16,15 +16,17 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -39,6 +41,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Refresh
 import com.chobgroup.admin_vlesshub.core.theme.AdminBackgroundGradient
 import com.chobgroup.admin_vlesshub.core.theme.AdminColors
 import com.chobgroup.admin_vlesshub.data.AdminKeyStore
@@ -57,6 +61,8 @@ fun AdminFilesScreen() {
     var files by remember { mutableStateOf<List<VpnFile>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var refreshKey by remember { mutableIntStateOf(0) }
+    var renameTarget by remember { mutableStateOf<VpnFile?>(null) }
+    var renameText by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) {
         val fetched = RemoteVpnFileRepository().fetchFiles()
@@ -83,6 +89,22 @@ fun AdminFilesScreen() {
             if (ok) {
                 files = files.filterNot { it.id == file.id }
                 snackbar.showSnackbar("File removed: ${file.filename}")
+            } else {
+                snackbar.showSnackbar("Failed — check admin key")
+            }
+        }
+    }
+
+    fun doRenameFile(file: VpnFile, newName: String) {
+        if (!AdminKeyStore.instance.hasKey()) {
+            scope.launch { snackbar.showSnackbar("Set admin key in Settings first") }
+            return
+        }
+        scope.launch {
+            val ok = AdminApi.renameFile(file.id, newName)
+            if (ok) {
+                files = files.map { if (it.id == file.id) it.copy(filename = newName) else it }
+                snackbar.showSnackbar("Renamed to: $newName")
             } else {
                 snackbar.showSnackbar("Failed — check admin key")
             }
@@ -126,7 +148,11 @@ fun AdminFilesScreen() {
                 }
                 else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxSize()) {
                     items(files, key = { it.id }) { file ->
-                        AdminFileCard(file = file, onRemove = { removeFile(file) })
+                        AdminFileCard(
+                            file = file,
+                            onRename = { renameTarget = file; renameText = file.filename },
+                            onRemove = { removeFile(file) },
+                        )
                     }
                     item { Spacer(Modifier.height(8.dp)) }
                 }
@@ -134,10 +160,42 @@ fun AdminFilesScreen() {
         }
         SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = 64.dp))
     }
+
+    renameTarget?.let { file ->
+        AlertDialog(
+            onDismissRequest = { renameTarget = null },
+            title = { Text("Rename File", color = AdminColors.TextPrimary, fontWeight = FontWeight.Bold) },
+            text = {
+                OutlinedTextField(
+                    value = renameText,
+                    onValueChange = { renameText = it },
+                    label = { Text("Filename", color = AdminColors.TextSecondary) },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = AdminColors.AccentRed,
+                        unfocusedBorderColor = AdminColors.GlassBorder,
+                        focusedTextColor = AdminColors.TextPrimary,
+                        unfocusedTextColor = AdminColors.TextPrimary,
+                        cursorColor = AdminColors.AccentRed,
+                    ),
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (renameText.isNotBlank()) doRenameFile(file, renameText.trim())
+                    renameTarget = null
+                }) { Text("Rename", color = AdminColors.AccentRed) }
+            },
+            dismissButton = {
+                TextButton(onClick = { renameTarget = null }) { Text("Cancel", color = AdminColors.TextSecondary) }
+            },
+            containerColor = AdminColors.BgCard,
+        )
+    }
 }
 
 @Composable
-private fun AdminFileCard(file: VpnFile, onRemove: () -> Unit) {
+private fun AdminFileCard(file: VpnFile, onRename: () -> Unit, onRemove: () -> Unit) {
     AdminGlassCard(contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Surface(
@@ -174,11 +232,21 @@ private fun AdminFileCard(file: VpnFile, onRemove: () -> Unit) {
             }
             if (AdminKeyStore.instance.hasKey()) {
                 Spacer(Modifier.size(8.dp))
-                Surface(onClick = onRemove, shape = RoundedCornerShape(10.dp), color = AdminColors.ErrorRed.copy(alpha = 0.1f)) {
-                    Row(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(AdminIcons.Delete, contentDescription = "Remove", tint = AdminColors.ErrorRed, modifier = Modifier.size(14.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Remove", color = AdminColors.ErrorRed, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                Column {
+                    Surface(onClick = onRename, shape = RoundedCornerShape(10.dp), color = AdminColors.AccentOrange.copy(alpha = 0.1f)) {
+                        Row(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(AdminIcons.Edit, contentDescription = "Rename", tint = AdminColors.AccentOrange, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Rename", color = AdminColors.AccentOrange, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Surface(onClick = onRemove, shape = RoundedCornerShape(10.dp), color = AdminColors.ErrorRed.copy(alpha = 0.1f)) {
+                        Row(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(AdminIcons.Delete, contentDescription = "Remove", tint = AdminColors.ErrorRed, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Remove", color = AdminColors.ErrorRed, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        }
                     }
                 }
             }

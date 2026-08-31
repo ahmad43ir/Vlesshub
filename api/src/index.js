@@ -7,7 +7,7 @@
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, PATCH, OPTIONS',
   'Access-Control-Allow-Headers': 'content-type, x-admin-key',
 };
 
@@ -62,7 +62,6 @@ export default {
     if (path === '/health') return json({ status: 'ok', service: 'vlesshub-api' });
 
     // ── Public: request a 6-digit code ───────────────────────
-    // Uses Cloudflare KV for persistent storage across isolates.
     if (path === '/request-code' && request.method === 'POST') {
       const body = await request.json().catch(() => null);
       const device = String(body?.device ?? 'unknown');
@@ -230,6 +229,21 @@ export default {
       return json({ ok: res.ok, deleted: res.ok ? 1 : 0 });
     }
 
+    // ── Admin: PATCH rename server by ID ─────────────────────
+    m = path.match(/^\/servers\/(\d+)$/);
+    if (m && request.method === 'PATCH') {
+      const body = await request.json().catch(() => null);
+      const newName = String(body?.name ?? '').trim();
+      if (!newName) return json({ error: 'name required' }, 400);
+      const id = Number(m[1]);
+      const res = await fetch(`${env.SUPABASE_URL}/rest/v1/servers?id=eq.${id}`, {
+        method: 'PATCH',
+        headers: { apikey: env.SUPABASE_KEY, Authorization: `Bearer ${env.SUPABASE_KEY}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newName }),
+      });
+      return json({ ok: res.ok });
+    }
+
     // ── Admin: DELETE files by ID ────────────────────────────
     m = path.match(/^\/files\/(\d+)$/);
     if (m && request.method === 'DELETE') {
@@ -241,6 +255,21 @@ export default {
       return json({ ok: res.ok, deleted: res.ok ? 1 : 0 });
     }
 
+    // ── Admin: PATCH rename file by ID ───────────────────────
+    m = path.match(/^\/files\/(\d+)$/);
+    if (m && request.method === 'PATCH') {
+      const body = await request.json().catch(() => null);
+      const newName = String(body?.filename ?? '').trim();
+      if (!newName) return json({ error: 'filename required' }, 400);
+      const id = Number(m[1]);
+      const res = await fetch(`${env.SUPABASE_URL}/rest/v1/vpn_files?id=eq.${id}`, {
+        method: 'PATCH',
+        headers: { apikey: env.SUPABASE_KEY, Authorization: `Bearer ${env.SUPABASE_KEY}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename: newName }),
+      });
+      return json({ ok: res.ok });
+    }
+
     // ── Admin: DELETE proxies by ID ──────────────────────────
     m = path.match(/^\/proxies\/(\d+)$/);
     if (m && request.method === 'DELETE') {
@@ -250,6 +279,25 @@ export default {
         headers: { apikey: env.SUPABASE_KEY, Authorization: `Bearer ${env.SUPABASE_KEY}` },
       });
       return json({ ok: res.ok, deleted: res.ok ? 1 : 0 });
+    }
+
+    // ── Admin: PATCH rename proxy by ID ──────────────────────
+    m = path.match(/^\/proxies\/(\d+)$/);
+    if (m && request.method === 'PATCH') {
+      const body = await request.json().catch(() => null);
+      const fields = {};
+      if (body?.source !== undefined) fields.source = String(body.source).trim();
+      if (body?.host !== undefined) fields.host = String(body.host).trim();
+      if (body?.port !== undefined) fields.port = Number(body.port);
+      if (body?.secret !== undefined) fields.secret = String(body.secret).trim();
+      if (Object.keys(fields).length === 0) return json({ error: 'at least one field required' }, 400);
+      const id = Number(m[1]);
+      const res = await fetch(`${env.SUPABASE_URL}/rest/v1/scraper_proxies?id=eq.${id}`, {
+        method: 'PATCH',
+        headers: { apikey: env.SUPABASE_KEY, Authorization: `Bearer ${env.SUPABASE_KEY}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(fields),
+      });
+      return json({ ok: res.ok });
     }
 
     // ── Admin: servers CRUD ──────────────────────────────────

@@ -10,17 +10,14 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 
 /**
- * Admin DELETE operations — remove servers, files, and proxies from the backend.
+ * Admin operations — rename, delete servers/files/proxies.
  * Each call sends the admin key via `X-Admin-Key` header.
- *
- * Backend endpoints (Cloudflare Worker → Supabase REST):
- *   DELETE /servers/{id}   → { ok: true, deleted: N }
- *   DELETE /files/{id}     → { ok: true, deleted: N }
- *   DELETE /proxies/{id}   → { ok: true, deleted: N }
  */
 object AdminApi {
 
     private val JSON_MEDIA = "application/json".toMediaType()
+
+    // ── DELETE ──────────────────────────────────────────────
 
     /** Delete a server config by its ID. */
     suspend fun deleteServer(id: String): Boolean = withContext(Dispatchers.IO) {
@@ -37,10 +34,52 @@ object AdminApi {
         doDelete("${AppConstants.VLESSHUB_API_URL}/proxies/$id")
     }
 
-    /**
-     * Executes a DELETE request with admin key header.
-     * Returns true when the backend confirms deletion (HTTP 200 + body `{ ok: true }`).
-     */
+    // ── RENAME (PATCH) ─────────────────────────────────────
+
+    /** Rename a server by its ID. */
+    suspend fun renameServer(id: String, newName: String): Boolean = withContext(Dispatchers.IO) {
+        doPatch("${AppConstants.VLESSHUB_API_URL}/servers/$id", """{"name":"${newName.replace("\"", "\\\"")}"}""")
+    }
+
+    /** Rename a VPN file by its ID. */
+    suspend fun renameFile(id: Long, newName: String): Boolean = withContext(Dispatchers.IO) {
+        doPatch("${AppConstants.VLESSHUB_API_URL}/files/$id", """{"filename":"${newName.replace("\"", "\\\"")}"}""")
+    }
+
+    /** Rename a proxy (source label) by its ID. */
+    suspend fun renameProxy(id: String, newSource: String): Boolean = withContext(Dispatchers.IO) {
+        doPatch("${AppConstants.VLESSHUB_API_URL}/proxies/$id", """{"source":"${newSource.replace("\"", "\\\"")}"}""")
+    }
+
+    // ── Internal helpers ────────────────────────────────────
+
+    private fun doPatch(url: String, bodyJson: String): Boolean {
+        val adminKey = AdminKeyStore.instance.getAdminKey()
+        if (adminKey.isBlank()) return false
+
+        return try {
+            val client = PinnedHttpClient.newClient(callTimeoutMillis = 10_000)
+            val request = Request.Builder()
+                .url(url)
+                .patch(bodyJson.toRequestBody(JSON_MEDIA))
+                .header("X-Admin-Key", adminKey)
+                .header("Content-Type", "application/json")
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return false
+                val body = response.body?.string().orEmpty()
+                if (body.isBlank()) return true
+                runCatching {
+                    val json = JSONObject(body)
+                    json.optBoolean("ok", true)
+                }.getOrDefault(true)
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     private fun doDelete(url: String): Boolean {
         val adminKey = AdminKeyStore.instance.getAdminKey()
         if (adminKey.isBlank()) return false
@@ -57,7 +96,7 @@ object AdminApi {
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return false
                 val body = response.body?.string().orEmpty()
-                if (body.isBlank()) return true // 200 OK with empty body = success
+                if (body.isBlank()) return true
                 runCatching {
                     val json = JSONObject(body)
                     json.optBoolean("ok", true)

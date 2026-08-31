@@ -101,4 +101,24 @@ object AdminIcons {
             )
         }.build()
     }
+
+    /** Material "edit" pencil glyph — rename button. */
+    val Edit: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "Edit",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                pathData = PathParser()
+                    .parsePathString(
+                        "M3,17.25V21h3.75L17.81,9.94l-3.75,-3.75L3,17.25zM20.71,7.04c0.39,-0.39 0.39,-1.02 0,-1.41l-2.34,-2.34c-0.39,-0.39 -1.02,-0.39 -1.41,0l-1.83,1.83 3.75,3.75 1.83,-1.83z",
+                    )
+                    .toNodes(),
+                fill = SolidColor(Color.Black),
+            )
+        }.build()
+    }
 }

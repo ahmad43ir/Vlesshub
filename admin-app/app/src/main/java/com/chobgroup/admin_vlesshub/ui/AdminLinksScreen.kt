@@ -16,16 +16,18 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -42,6 +44,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Refresh
 import com.chobgroup.admin_vlesshub.config.ConfigNormalizer
 import com.chobgroup.admin_vlesshub.core.theme.AdminBackgroundGradient
 import com.chobgroup.admin_vlesshub.core.theme.AdminColors
@@ -61,10 +65,6 @@ import kotlinx.coroutines.withContext
 import java.net.InetSocketAddress
 import java.net.Socket
 
-/**
- * Links tab — VLESS/V2Ray configs with Copy, TCP Ping, Refresh, and admin Remove.
- * Simple UI: no ads, no animations, no blur gates.
- */
 @Composable
 fun AdminLinksScreen() {
     val clipboard = LocalClipboard.current
@@ -74,6 +74,8 @@ fun AdminLinksScreen() {
     var loading by remember { mutableStateOf(true) }
     var pinging by remember { mutableStateOf(false) }
     var refreshKey by remember { mutableIntStateOf(0) }
+    var renameTarget by remember { mutableStateOf<VpnServer?>(null) }
+    var renameText by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) {
         val fetched = RemoteServerRepository().fetchServers()
@@ -127,6 +129,30 @@ fun AdminLinksScreen() {
         }
     }
 
+    fun doRename(server: VpnServer, newName: String) {
+        if (!AdminKeyStore.instance.hasKey()) {
+            scope.launch { snackbar.showSnackbar("Set admin key in Settings first") }
+            return
+        }
+        scope.launch {
+            val id = server.id
+            if (id == null) {
+                snackbar.showSnackbar("Cannot rename (no server ID)")
+                return@launch
+            }
+            val ok = AdminApi.renameServer(id, newName)
+            if (ok) {
+                val idx = servers.indexOfFirst { it.rawConfig == server.rawConfig }
+                if (idx >= 0) {
+                    servers = servers.toMutableList().also { it[idx] = it[idx].copy(name = newName) }
+                }
+                snackbar.showSnackbar("Renamed to: $newName")
+            } else {
+                snackbar.showSnackbar("Failed — check admin key")
+            }
+        }
+    }
+
     Box(Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier.fillMaxSize().background(AdminBackgroundGradient).padding(horizontal = 16.dp),
@@ -138,7 +164,7 @@ fun AdminLinksScreen() {
                 Column(Modifier.weight(1f)) {
                     Text("Links", style = MaterialTheme.typography.headlineSmall, color = AdminColors.TextPrimary, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(2.dp))
-                    Text("Admin — copy, ping, refresh, or remove configs", color = AdminColors.TextSecondary, fontSize = 12.sp)
+                    Text("Admin — copy, ping, refresh, rename, or remove", color = AdminColors.TextSecondary, fontSize = 12.sp)
                 }
                 IconButton(
                     onClick = { if (!pinging) pingAll() },
@@ -180,9 +206,7 @@ fun AdminLinksScreen() {
                                 server = server,
                                 onCopy = {
                                     scope.launch {
-                                        clipboard.setClipEntry(
-                                            ClipEntry(ClipData.newPlainText("config", server.rawConfig)),
-                                        )
+                                        clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("config", server.rawConfig)))
                                         snackbar.showSnackbar("Config copied")
                                     }
                                 },
@@ -195,6 +219,7 @@ fun AdminLinksScreen() {
                                         }
                                     }
                                 },
+                                onRename = { renameTarget = server; renameText = server.name },
                                 onRemove = { removeServer(server) },
                             )
                         }
@@ -205,6 +230,38 @@ fun AdminLinksScreen() {
         }
         SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = 64.dp))
     }
+
+    renameTarget?.let { server ->
+        AlertDialog(
+            onDismissRequest = { renameTarget = null },
+            title = { Text("Rename Server", color = AdminColors.TextPrimary, fontWeight = FontWeight.Bold) },
+            text = {
+                OutlinedTextField(
+                    value = renameText,
+                    onValueChange = { renameText = it },
+                    label = { Text("Name", color = AdminColors.TextSecondary) },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = AdminColors.AccentRed,
+                        unfocusedBorderColor = AdminColors.GlassBorder,
+                        focusedTextColor = AdminColors.TextPrimary,
+                        unfocusedTextColor = AdminColors.TextPrimary,
+                        cursorColor = AdminColors.AccentRed,
+                    ),
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (renameText.isNotBlank()) doRename(server, renameText.trim())
+                    renameTarget = null
+                }) { Text("Rename", color = AdminColors.AccentRed) }
+            },
+            dismissButton = {
+                TextButton(onClick = { renameTarget = null }) { Text("Cancel", color = AdminColors.TextSecondary) }
+            },
+            containerColor = AdminColors.BgCard,
+        )
+    }
 }
 
 @Composable
@@ -212,11 +269,10 @@ private fun AdminConfigCard(
     server: VpnServer,
     onCopy: () -> Unit,
     onPing: () -> Unit,
+    onRename: () -> Unit,
     onRemove: () -> Unit,
 ) {
-    AdminGlassCard(
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 10.dp),
-    ) {
+    AdminGlassCard(contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -250,6 +306,7 @@ private fun AdminConfigCard(
             AdminActionButton(label = "Copy", icon = AdminIcons.ContentCopy, onClick = onCopy)
             AdminActionButton(label = "Ping", icon = AdminIcons.Speed, onClick = onPing)
             if (AdminKeyStore.instance.hasKey()) {
+                AdminActionButton(label = "Rename", icon = AdminIcons.Edit, tint = AdminColors.AccentOrange, onClick = onRename)
                 AdminActionButton(label = "Remove", icon = AdminIcons.Delete, tint = AdminColors.ErrorRed, onClick = onRemove)
             }
         }
@@ -263,15 +320,8 @@ private fun AdminActionButton(
     tint: androidx.compose.ui.graphics.Color = AdminColors.AccentRed,
     onClick: () -> Unit,
 ) {
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(10.dp),
-        color = tint.copy(alpha = 0.1f),
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
+    Surface(onClick = onClick, shape = RoundedCornerShape(10.dp), color = tint.copy(alpha = 0.1f)) {
+        Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(icon, contentDescription = null, modifier = Modifier.size(14.dp), tint = tint)
             Spacer(Modifier.width(6.dp))
             Text(label, color = tint, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)

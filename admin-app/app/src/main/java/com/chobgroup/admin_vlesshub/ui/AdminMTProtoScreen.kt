@@ -23,13 +23,17 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -72,6 +76,8 @@ fun AdminMTProtoScreen() {
     var loadingMore by remember { mutableStateOf(false) }
     var noMore by remember { mutableStateOf(false) }
     var extraProxies by remember { mutableStateOf<List<ProxyItem>>(emptyList()) }
+    var renameTarget by remember { mutableStateOf<ProxyItem?>(null) }
+    var renameText by remember { mutableStateOf("") }
 
     fun loadProxies() {
         loading = true
@@ -131,6 +137,28 @@ fun AdminMTProtoScreen() {
         }
     }
 
+    fun doRenameProxy(proxy: ProxyItem, newSource: String) {
+        if (!AdminKeyStore.instance.hasKey()) {
+            scope.launch { snackbar.showSnackbar("Set admin key in Settings first") }
+            return
+        }
+        scope.launch {
+            val id = proxy.id
+            if (id == null) {
+                snackbar.showSnackbar("Cannot rename (no proxy ID)")
+                return@launch
+            }
+            val ok = AdminApi.renameProxy(id, newSource)
+            if (ok) {
+                proxies = proxies.map { if (it.link == proxy.link) it.copy(source = newSource) else it }
+                extraProxies = extraProxies.map { if (it.link == proxy.link) it.copy(source = newSource) else it }
+                snackbar.showSnackbar("Renamed to: $newSource")
+            } else {
+                snackbar.showSnackbar("Failed — check admin key")
+            }
+        }
+    }
+
     LaunchedEffect(Unit) { loadProxies() }
 
     Box(Modifier.fillMaxSize()) {
@@ -184,6 +212,7 @@ fun AdminMTProtoScreen() {
                                 onCopy = { scope.launch { clipboard.setClipEntry(ClipEntry(ClipData.newPlainText("proxy", proxy.link))); snackbar.showSnackbar("tg:// link copied") } },
                                 onShare = { context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, proxy.link) }, "Share proxy")) },
                                 onOpen = { runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(proxy.link))) }.onFailure { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(proxy.link.replaceFirst("tg://proxy?", "https://t.me/proxy?")))) } },
+                                onRename = { renameTarget = proxy; renameText = proxy.source ?: proxy.host },
                                 onRemove = { removeProxy(proxy) },
                             )
                         }
@@ -204,10 +233,42 @@ fun AdminMTProtoScreen() {
         }
         SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).padding(bottom = 64.dp))
     }
+
+    renameTarget?.let { proxy ->
+        AlertDialog(
+            onDismissRequest = { renameTarget = null },
+            title = { Text("Rename Proxy", color = AdminColors.TextPrimary, fontWeight = FontWeight.Bold) },
+            text = {
+                OutlinedTextField(
+                    value = renameText,
+                    onValueChange = { renameText = it },
+                    label = { Text("Source / Label", color = AdminColors.TextSecondary) },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = AdminColors.AccentRed,
+                        unfocusedBorderColor = AdminColors.GlassBorder,
+                        focusedTextColor = AdminColors.TextPrimary,
+                        unfocusedTextColor = AdminColors.TextPrimary,
+                        cursorColor = AdminColors.AccentRed,
+                    ),
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (renameText.isNotBlank()) doRenameProxy(proxy, renameText.trim())
+                    renameTarget = null
+                }) { Text("Rename", color = AdminColors.AccentRed) }
+            },
+            dismissButton = {
+                TextButton(onClick = { renameTarget = null }) { Text("Cancel", color = AdminColors.TextSecondary) }
+            },
+            containerColor = AdminColors.BgCard,
+        )
+    }
 }
 
 @Composable
-private fun AdminProxyCard(proxy: ProxyItem, onCopy: () -> Unit, onShare: () -> Unit, onOpen: () -> Unit, onRemove: () -> Unit) {
+private fun AdminProxyCard(proxy: ProxyItem, onCopy: () -> Unit, onShare: () -> Unit, onOpen: () -> Unit, onRename: () -> Unit, onRemove: () -> Unit) {
     AdminGlassCard(contentPadding = androidx.compose.foundation.layout.PaddingValues(14.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(10.dp).clip(CircleShape).background(AdminColors.SuccessGreen))
@@ -225,7 +286,10 @@ private fun AdminProxyCard(proxy: ProxyItem, onCopy: () -> Unit, onShare: () -> 
             ProxyChip("Copy", AdminIcons.ContentCopy, onCopy)
             ProxyChip("Share", Icons.Default.Share, onShare)
             ProxyChip("Open", Icons.Filled.Refresh, onOpen)
-            if (AdminKeyStore.instance.hasKey()) ProxyChip("Remove", AdminIcons.Delete, onRemove, tint = AdminColors.ErrorRed)
+            if (AdminKeyStore.instance.hasKey()) {
+                ProxyChip("Rename", AdminIcons.Edit, onRename, tint = AdminColors.AccentOrange)
+                ProxyChip("Remove", AdminIcons.Delete, onRemove, tint = AdminColors.ErrorRed)
+            }
         }
     }
 }
