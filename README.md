@@ -35,8 +35,7 @@ Install the APK on Android 6.0+ (API 23+).
 
 ## Support
 
-- 📧 Email: mobileahmad43@gmail.com
-- 📢 Telegram: [@VlessHub](https://t.me/VlessHub)
+- 📢 Telegram: [@Vless_hub_bot](https://t.me/Vless_hub_bot)
 
 ## License
 
