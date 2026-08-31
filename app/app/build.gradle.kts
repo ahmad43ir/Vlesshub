@@ -27,8 +27,8 @@ android {
         applicationId = "com.chobgroup.vlesshub"
         minSdk = 23
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 210
+        versionName = "2.10.0"
     }
 
     signingConfigs {
