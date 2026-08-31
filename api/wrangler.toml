@@ -25,6 +25,8 @@ compatibility_date = "2026-07-28"
 binding = "OTP_STORE"
 id = "d770ac286e724e3aacd76146dbc5f523"
 
+# SUPABASE_KEY is set as a Cloudflare Worker secret (never commit it)
+# Run: wrangler secret put SUPABASE_KEY
+
 [vars]
 SUPABASE_URL = "https://bprkazfxqmanrybiexnh.supabase.co"
-SUPABASE_KEY = "[REDACTED-SUPABASE-SERVICE-ROLE-KEY]"
