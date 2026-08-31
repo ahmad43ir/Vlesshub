@@ -235,19 +235,11 @@ fun LinksScreen() {
             cache.resetActionTracking("links")
             actionCount = 0
             countedConfigs = emptySet()
-            scope.launch {
-                snackbar.showSnackbar("Refreshed \u2014 pinging servers...")
-                pinging = true
-                val updated = servers.toMutableList()
-                for (i in updated.indices) {
-                    val ms = pingServer(updated[i])
-                    updated[i] = updated[i].copy(pingMs = ms)
-                    servers = updated.toList()
-                }
-                cache.saveServers(updated)
-                pinging = false
-                snackbar.showSnackbar("Ping complete")
-            }
+            // Clear all ping states on refresh — user pings manually
+            val cleared = servers.map { it.copy(pingMs = null) }
+            servers = cleared
+            cache.saveServers(cleared)
+            scope.launch { snackbar.showSnackbar("Refreshed \u2014 new servers loaded") }
             Unit
         }
         // Show a picture (interstitial) ad only — try immediately, or
@@ -373,13 +365,17 @@ fun LinksScreen() {
                         scope.launch {
                             pinging = true
                             val updated = servers.toMutableList()
+                            // Only ping servers that haven't been pinged yet
                             for (i in updated.indices) {
-                                val ms = pingServer(updated[i])
-                                updated[i] = updated[i].copy(pingMs = ms)
-                                servers = updated.toList()
+                                if (updated[i].pingMs == null) {
+                                    val ms = pingServer(updated[i])
+                                    updated[i] = updated[i].copy(pingMs = ms)
+                                    servers = updated.toList()
+                                }
                             }
                             cache.saveServers(updated)
                             pinging = false
+                            snackbar.showSnackbar("Ping complete")
                         }
                     },
                     enabled = !loading && !pinging && servers.isNotEmpty() && gate == null,
@@ -476,12 +472,48 @@ fun LinksScreen() {
                                 if (visibleCount < distinctServers.size) {
                                     item {
                                         MoreButton(label = "More") {
+                                            val oldCount = visibleCount
                                             // Picture ad before each extra page.
                                             val shown = AdiveryAdsManager.maybeShowInterstitial(
-                                                onFinished = { visibleCount += 10 },
+                                                onFinished = {
+                                                    visibleCount += 10
+                                                    // Ping only the NEW servers that just appeared
+                                                    scope.launch {
+                                                        val updated = servers.toMutableList()
+                                                        val newServers = updated.drop(oldCount).take(10)
+                                                        for (server in newServers) {
+                                                            if (server.pingMs == null) {
+                                                                val ms = pingServer(server)
+                                                                val idx = updated.indexOfFirst { it.rawConfig == server.rawConfig }
+                                                                if (idx >= 0) {
+                                                                    updated[idx] = updated[idx].copy(pingMs = ms)
+                                                                    servers = updated.toList()
+                                                                }
+                                                            }
+                                                        }
+                                                        cache.saveServers(updated)
+                                                    }
+                                                },
                                             )
                                             if (!shown) {
-                                                runGate(LibGatePurpose.UNLOCK) { visibleCount += 10 }
+                                                runGate(LibGatePurpose.UNLOCK) {
+                                                    visibleCount += 10
+                                                    scope.launch {
+                                                        val updated = servers.toMutableList()
+                                                        val newServers = updated.drop(oldCount).take(10)
+                                                        for (server in newServers) {
+                                                            if (server.pingMs == null) {
+                                                                val ms = pingServer(server)
+                                                                val idx = updated.indexOfFirst { it.rawConfig == server.rawConfig }
+                                                                if (idx >= 0) {
+                                                                    updated[idx] = updated[idx].copy(pingMs = ms)
+                                                                    servers = updated.toList()
+                                                                }
+                                                            }
+                                                        }
+                                                        cache.saveServers(updated)
+                                                    }
+                                                }
                                             }
                                         }
                                     }
