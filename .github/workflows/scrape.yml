@@ -1,0 +1,97 @@
+name: vless-scraper (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      chat_id:
+        description: 'Telegram chat_id to send the run report to'
+        required: false
+        type: string
+
+concurrency:
+  group: vless-scraper
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TG_READY: ${{ secrets.TELEGRAM_SESSION != '' && secrets.API_ID != '' && secrets.API_HASH != '' }}
+      BOT_TOKEN_SET: ${{ secrets.BOT_TOKEN != '' }}
+    defaults:
+      run:
+        working-directory: scraper
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: scraper/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run scraper (fetch recent messages)
+        if: ${{ env.TG_READY == 'true' }}
+        env:
+          API_ID: ${{ secrets.API_ID }}
+          API_HASH: ${{ secrets.API_HASH }}
+          TELEGRAM_SESSION: ${{ secrets.TELEGRAM_SESSION }}
+          CHANNELS: ${{ secrets.CHANNELS }}
+          PROXY_CHANNELS: ${{ secrets.PROXY_CHANNELS }}
+          WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+          WEBHOOK_API_KEY: ${{ secrets.WEBHOOK_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          RUN_ONCE: '1'
+          RUN_ONCE_MAX_MESSAGES: '3'
+          RUN_ONCE_MAX_MESSAGES_TOTAL: '30'
+        run: set -o pipefail; python main.py 2>&1 | tee run.log
+
+      - name: No Telegram credentials yet
+        if: ${{ env.TG_READY != 'true' }}
+        run: echo "Telegram credentials not configured yet." > run.log
+
+      - name: Report result to Telegram
+        if: ${{ always() && inputs.chat_id != '' && env.BOT_TOKEN_SET == 'true' }}
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHAT_ID: ${{ inputs.chat_id }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          python - <<'PY'
+          import json, os, re, urllib.parse, urllib.request
+          log_text = ""
+          try:
+              with open("run.log", encoding="utf-8", errors="replace") as f:
+                  log_text = f.read()
+          except Exception:
+              pass
+          token = os.environ["BOT_TOKEN"]
+          chat = os.environ["CHAT_ID"]
+          def api(method, body):
+              data = json.dumps(body).encode()
+              req = urllib.request.Request(f"https://api.telegram.org/bot{token}/{method}", data=data, headers={"Content-Type": "application/json"})
+              try:
+                  with urllib.request.urlopen(req, timeout=20) as r:
+                      return json.loads(r.read())
+              except Exception as e:
+                  print(f"report {method} failed: {e}")
+                  return None
+          if "Run-once summary:" in log_text:
+              m = re.search(r"Run-once summary: (\d+) channel\(s\), (\d+) message\(s\) seen, (\d+) with links, (\d+) link\(s\) found", log_text)
+              if m:
+                  channels, seen, withlinks, links = m.groups()
+                  api("sendMessage", {"chat_id": chat, "text": f"🤖 *Scraper run finished*\n\n📡 Channels: {channels}\n💬 Messages: {seen}\n🔗 With links: {withlinks}\n✅ Links: {links}", "parse_mode": "Markdown"})
+              else:
+                  api("sendMessage", {"chat_id": chat, "text": "🤖 *Scraper run finished* (details in Actions log)", "parse_mode": "Markdown"})
+          elif "No proxy available" in log_text:
+              api("sendMessage", {"chat_id": chat, "text": "❌ *Scraper failed — no working proxy.*\nSend one with `/addproxy`, then run `/scrape` again.", "parse_mode": "Markdown"})
+          else:
+              tail = [ln for ln in log_text.splitlines() if ln.strip()][-6:]
+              api("sendMessage", {"chat_id": chat, "text": "⚠️ *Scraper finished with issues.*\n```\n" + "\n".join(tail) + "\n```", "parse_mode": "Markdown"})
+          PY
