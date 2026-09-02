@@ -9,16 +9,7 @@
 <title>VlessHub</title>
 <link rel="manifest" href="manifest.json"/>
 <link rel="apple-touch-icon" href="icons/icon-192.png"/>
-<!-- Mobile-only gate -->
-<script>
-(function(){
-  var isMobile = /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-  if(!isMobile){
-    document.documentElement.innerHTML = '<head><title>VlessHub</title><style>body{font-family:-apple-system,sans-serif;background:#0B1A12;color:#E8F5E9;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center;padding:20px}h1{color:#4CFF88;font-size:24px}p{color:#9CB8A4;margin-top:12px;font-size:14px}</style></head><body><div><h1>VlessHub</h1><p>This app is for mobile devices only.<br>Open on your phone to install it as an app.</p></div></body>';
-    throw new Error('desktop blocked');
-  }
-})();
-</script>
+<!-- Desktop: allow full use (ads hidden via CSS media query below) -->
 <!-- Yektanet analytics + ad (proxied) -->
 <script>
 !function(e,t,n){e.yektanetAnalyticsObject=n,e[n]=e[n]||function(){e[n].q.push(arguments)},e[n].q=e[n].q||[];var a=t.getElementsByTagName("head")[0],r=new Date,c="https://yektanet-proxy.mobileahmad43-a18.workers.dev/yektanet/superscript/BNV1QlRY/native-com.chobgroup.vlesshub-48190/yn_pub.js?v="+r.getFullYear().toString()+"0"+r.getMonth()+"0"+r.getDate()+"0"+r.getHours(),s=t.createElement("link");s.rel="preload",s.as="script",s.href=c,a.appendChild(s);var l=t.createElement("script");l.async=!0,l.src=c,a.appendChild(l)}(window,document,"yektanet");
@@ -115,6 +106,14 @@ a{color:var(--neon);text-decoration:none}
 .ad-close:active{background:rgba(255,255,255,0.2)}
 .ad-container{width:100%;max-width:400px;min-height:300px;display:flex;align-items:center;justify-content:center}
 .ad-label{position:absolute;bottom:16px;font-size:11px;color:var(--muted)}
+
+/* ── Desktop tweaks ── */
+/* Center the app column on wide screens and hide the mobile-only ad slots
+   (sticky banner + floating widget overlap awkwardly on desktop). */
+@media (min-width: 768px){
+  .ad-banner,.ad-floating{display:none}
+  .install-banner{bottom:0}
+}
 </style>
 </head>
 <body>
