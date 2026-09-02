@@ -21,7 +21,7 @@ Telegram Channels (VLESS configs + MTProto proxies)
 
 | Component | Path | Description |
 |-----------|------|-------------|
-| **VlessHub App** | `vlesshub-app/` | Android app — browse, copy, export VLESS configs + download VPN files + MTProto proxies |
+| **VlessHub App** | `vlesshub-app/` | Android app source (archived — not built; see PWA note below) |
 | **VlessHub PWA** | `pages-site/vlesshub/` | Mobile web app — same features as Android, installable on iOS + Android |
 | **Admin App** | `admin_vlesshub_source/` | Admin companion — manage links/files/proxies with Hide/Remove, Xray config testing |
 | **Bot** | `rootnet-vpn/supabase/functions/vlesshub-bot/` | Supabase Edge Function — Telegram bot for channel management, scraping, contact messages |
@@ -107,8 +107,15 @@ app/src/main/java/com/chobgroup/vlesshub/
 
 ```bash
 cd vlesshub/vlesshub-app
-./gradlew.bat :app:assembleDebug      # Debug APK (~1.6 MB)
-./gradlew.bat :app:assembleRelease    # Release APK (signed, R8, ~1.6 MB)
+> **ℹ️ DISTRIBUTION NOTE:** VlessHub ships as a **PWA only** — https://vlesshub-2i2.pages.dev
+> (mirror: https://vlesshub-proxy.mobileahmad43-a18.workers.dev). No APKs are built or
+> published; all GitHub releases have been removed. The Android source above is kept
+> for reference. Build locally if you ever need it:
+>
+> ```bash
+> cd app/android/vlesshub-app
+> ./gradlew.bat :app:assembleRelease
+> ```
 ./gradlew.bat :app:testDebugUnitTest  # Unit tests
 ```
 
