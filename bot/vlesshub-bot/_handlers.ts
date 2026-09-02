@@ -320,8 +320,8 @@ async function sendVersionMenu(ctx: BotContext, chatId: number) {
 // Schedule lives in scraper_config:
 //   scrape_schedule_enabled  = "true" | "false"
 //   scrape_schedule_hours    = "6" | "12" | "24"
-// A pg_cron job + the scrape-scheduler edge function read the same keys
-// every 15 min and dispatch GitHub when the interval has elapsed.
+// An hourly GitHub Actions cron tick reads the same keys and runs the
+// scraper when the interval has elapsed.
 const SCHEDULE_ENABLED_KEY = 'scrape_schedule_enabled';
 const SCHEDULE_HOURS_KEY = 'scrape_schedule_hours';
 const SCHEDULE_LAST_KEY = 'scrape_schedule_last';
@@ -352,7 +352,7 @@ function scheduleText(s: { enabled: boolean; hours: number; last: string | null 
     }
   }
   const next = s.enabled
-    ? `Next auto-run: within ${s.hours}h of the last one (checked every 15 min)`
+    ? `Next auto-run: within ${s.hours}h of the last one (checked hourly)`
     : 'Start it to enable automatic runs.';
   return `*⏱ Auto-scrape scheduler*\n\nStatus: ${state}\nInterval: every *${s.hours} hours*\nLast auto-run: ${lastLine}\n\n${next}\n\nGitHub limits: runs cost ~2 min each; even 6h is ~240 min/month — well inside the free tier. Do not go below 6h.`;
 }
