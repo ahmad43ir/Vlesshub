@@ -16,3 +16,7 @@ admin-app/.gradle/
 app/.kotlin/
 admin-app/.kotlin/
 bot/supabase/
+# Deploy staging copy of the bot function (source of truth: bot/vlesshub-bot)
+/supabase/
+__pycache__/
+.tmp-pool.json

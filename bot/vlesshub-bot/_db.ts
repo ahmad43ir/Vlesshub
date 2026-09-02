@@ -217,6 +217,19 @@ export async function getConfig(supabase: any, key: string): Promise<string | nu
   }
 }
 
+/** Upsert a scraper_config key. Returns true on success. */
+export async function setConfig(supabase: any, key: string, value: string): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from('scraper_config')
+      .upsert({ key, value, updated_at: new Date().toISOString() });
+    return !error;
+  } catch (e) {
+    console.warn('[db] setConfig threw:', (e as Error).message);
+    return false;
+  }
+}
+
 export async function getChannels(supabase: any): Promise<string[]> {
   const value = await getConfig(supabase, 'vless_channels');
   if (!value) return [];

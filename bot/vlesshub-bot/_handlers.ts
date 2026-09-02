@@ -39,6 +39,8 @@ import {
   listContacts,
   countContacts,
   deleteContact,
+  getConfig,
+  setConfig,
   PAGE_SIZE,
   CONTACT_PAGE_SIZE,
   type ContactRow,
@@ -282,7 +284,10 @@ async function sendScraperMenu(ctx: BotContext, chatId: number) {
       { text: '🗑 Remove channel', callback_data: 'scraper:delchannel' },
     ],
     [{ text: '📋 Channels', callback_data: 'scraper:listchannel' }],
-    [{ text: '▶️ Run scrape', callback_data: 'scraper:scrape' }],
+    [
+      { text: '▶️ Run scrape', callback_data: 'scraper:scrape' },
+      { text: '⏱ Auto scrape', callback_data: 'scraper:schedule' },
+    ],
     [{ text: BTN_MENU, callback_data: 'menu' }],
   ]);
   await tg.sendMessage(ctx.token, chatId, text, { parse_mode: 'Markdown', reply_markup: kb });
@@ -309,6 +314,65 @@ async function sendVersionMenu(ctx: BotContext, chatId: number) {
     [{ text: BTN_MENU, callback_data: 'menu' }],
   ]);
   await tg.sendMessage(ctx.token, chatId, text, { parse_mode: 'Markdown', reply_markup: kb });
+}
+
+// ─── Auto-scrape scheduler (glass ⏱ button) ─────────────────
+// Schedule lives in scraper_config:
+//   scrape_schedule_enabled  = "true" | "false"
+//   scrape_schedule_hours    = "6" | "12" | "24"
+// A pg_cron job + the scrape-scheduler edge function read the same keys
+// every 15 min and dispatch GitHub when the interval has elapsed.
+const SCHEDULE_ENABLED_KEY = 'scrape_schedule_enabled';
+const SCHEDULE_HOURS_KEY = 'scrape_schedule_hours';
+const SCHEDULE_LAST_KEY = 'scrape_schedule_last';
+const ALLOWED_INTERVALS = [6, 12, 24];
+
+async function getSchedule(supabase: any): Promise<{ enabled: boolean; hours: number; last: string | null }> {
+  const [enabledRaw, hoursRaw, last] = await Promise.all([
+    getConfig(supabase, SCHEDULE_ENABLED_KEY),
+    getConfig(supabase, SCHEDULE_HOURS_KEY),
+    getConfig(supabase, SCHEDULE_LAST_KEY),
+  ]);
+  const hours = Number(hoursRaw);
+  return {
+    enabled: enabledRaw === 'true',
+    hours: ALLOWED_INTERVALS.includes(hours) ? hours : 12,
+    last,
+  };
+}
+
+function scheduleText(s: { enabled: boolean; hours: number; last: string | null }): string {
+  const state = s.enabled ? '🟢 *Running*' : '🔴 *Stopped*';
+  let lastLine = 'Never fired yet';
+  if (s.last) {
+    const t = new Date(s.last);
+    if (!isNaN(t.getTime())) {
+      const mins = Math.round((Date.now() - t.getTime()) / 60000);
+      lastLine = mins < 1 ? 'Just now' : mins < 60 ? `${mins} min ago` : `${Math.round(mins / 60)} h ago`;
+    }
+  }
+  const next = s.enabled
+    ? `Next auto-run: within ${s.hours}h of the last one (checked every 15 min)`
+    : 'Start it to enable automatic runs.';
+  return `*⏱ Auto-scrape scheduler*\n\nStatus: ${state}\nInterval: every *${s.hours} hours*\nLast auto-run: ${lastLine}\n\n${next}\n\nGitHub limits: runs cost ~2 min each; even 6h is ~240 min/month — well inside the free tier. Do not go below 6h.`;
+}
+
+function scheduleKeyboard(s: { enabled: boolean; hours: number }): any {
+  const intervalBtn = (h: number) => ({
+    text: (s.hours === h ? '● ' : '') + `${h}h`,
+    callback_data: `scraper:schedset:${h}`,
+  });
+  return urlKeyboard([
+    [
+      intervalBtn(6),
+      intervalBtn(12),
+      intervalBtn(24),
+    ],
+    [s.enabled
+      ? { text: '⏸ Stop auto-scrape', callback_data: 'scraper:schedstop' }
+      : { text: '▶️ Start auto-scrape', callback_data: 'scraper:schedstart' }],
+    [{ text: BTN_MENU, callback_data: 'menu' }],
+  ]);
 }
 
 // ─── GitHub Actions scrape dispatch (mirror bot.py) ───────────
@@ -1032,6 +1096,9 @@ async function handleCallback(ctx: BotContext, query: any): Promise<void> {
         return;
       }
       await edit('🚀 Triggering scrape...');
+      // Remember this chat so scheduled auto-runs can report failures
+      // back here (the workflow report step falls back to this key).
+      setConfig(ctx.supabase, 'scrape_report_chat_id', String(chatId));
       const result = await dispatchScrape(ctx, chatId);
       if (result.ok) {
         await edit('✅ Scrape triggered! w8 2-3min', { reply_markup: inlineMenuButton() });
@@ -1078,6 +1145,26 @@ async function handleCallback(ctx: BotContext, query: any): Promise<void> {
       state.pending = action;
       await saveState(ctx.supabase, state);
       await edit(prompts[action], { parse_mode: 'Markdown', reply_markup: inlineMenuButton() });
+    } else if (action === 'schedule') {
+      await tg.answerCallbackQuery(ctx.token, query.id);
+      const s = await getSchedule(ctx.supabase);
+      await edit(scheduleText(s), { parse_mode: 'Markdown', reply_markup: scheduleKeyboard(s) });
+    } else if (action === 'schedset' || action === 'schedstart' || action === 'schedstop') {
+      await tg.answerCallbackQuery(ctx.token, query.id);
+      if (action === 'schedset') {
+        const hours = Number(data.split(':')[2]);
+        if (!ALLOWED_INTERVALS.includes(hours)) {
+          await edit('Unsupported interval.', { reply_markup: inlineMenuButton() });
+          return;
+        }
+        await setConfig(ctx.supabase, SCHEDULE_HOURS_KEY, String(hours));
+      } else {
+        await setConfig(ctx.supabase, SCHEDULE_ENABLED_KEY, action === 'schedstart' ? 'true' : 'false');
+      }
+      const s = await getSchedule(ctx.supabase);
+      const verb = action === 'schedset' ? 'Interval set' : action === 'schedstart' ? 'Auto-scrape started' : 'Auto-scrape stopped';
+      await tg.answerCallbackQuery(ctx.token, query.id, verb);
+      await edit(scheduleText(s), { parse_mode: 'Markdown', reply_markup: scheduleKeyboard(s) });
     }
     return;
   }
@@ -1234,6 +1321,9 @@ async function handleCommand(ctx: BotContext, msg: any): Promise<void> {
       return;
     }
     await tg.sendMessage(ctx.token, chatId, '🚀 Triggering scrape...');
+    // Remember this chat so scheduled auto-runs can report failures
+    // back here (the workflow report step falls back to this key).
+    setConfig(ctx.supabase, 'scrape_report_chat_id', String(chatId));
     const result = await dispatchScrape(ctx, chatId);
     if (result.ok) {
       await tg.sendMessage(ctx.token, chatId, '✅ Scrape triggered! w8 2-3min', { reply_markup: mainKeyboard() });
