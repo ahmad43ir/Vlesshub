@@ -284,7 +284,6 @@ export async function addProxy(
       source,
       is_active: true,
       deactivated_at: null,
-      updated_at: new Date().toISOString(),
     };
     if (secret !== null) row.secret = secret;
     if (data) {
