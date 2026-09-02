@@ -26,6 +26,11 @@
 #                     channel list is NOT stored in Supabase (bot /addchannel
 #                     → scraper_config.vless_channels takes precedence)
 #   PROXY_CHANNELS — channels that post MTProto proxies (pool seed)
+#   MT_PROXY_HOST, MT_PROXY_PORT, MT_PROXY_SECRET
+#                   — optional bootstrap proxy: used when the pool has no
+#                     verified (last_ok) proxy left, so a run can still
+#                     connect, re-test the pool and heal it. Send one with
+#                     the bot /addproxy instead and it lands in the pool.
 #   BOT_TOKEN      — only needed for the Telegram result report
 # ============================================================
 
@@ -91,6 +96,12 @@ jobs:
           # Cap total reads per channel per run (top batch + catch-up drain);
           # a busy backlog drains across runs instead of being skipped.
           RUN_ONCE_MAX_MESSAGES_TOTAL: '30'
+          # Bootstrap proxy (optional): seeds the pool and is used as the
+          # connection when no verified proxy exists. Prevents the
+          # "No proxy available" chicken-and-egg after the pool dies out.
+          MT_PROXY_HOST: ${{ secrets.MT_PROXY_HOST }}
+          MT_PROXY_PORT: ${{ secrets.MT_PROXY_PORT }}
+          MT_PROXY_SECRET: ${{ secrets.MT_PROXY_SECRET }}
         # pipefail: the pipeline must fail when python does (not just when tee
         # fails), so a scraper error still marks the job as failed.
         run: set -o pipefail; python main.py 2>&1 | tee run.log
