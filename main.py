@@ -1243,6 +1243,18 @@ async def run_once_mode(webhook, store, storage, bootstrap: dict | None) -> None
         await client.connect()
         me = await client.get_me()
         log.info(f"✅ Connected as @{me.username or me.id}")
+        # Successful connection = the proxy works. Bump its freshness and
+        # keep its verified verdict so freshness-window consumers (the PWA's
+        # proxy-api) don't filter out a proxy that's demonstrably serving us.
+        # Non-fatal: a storage hiccup must not fail the run after connect won.
+        if storage is not None:
+            try:
+                await storage.mark_used(
+                    proxy["host"], int(proxy["port"]),
+                    used_at=datetime.now(timezone.utc).isoformat(),
+                )
+            except Exception as bump_err:
+                log.warning(f"  ⚠️ mark_used failed (non-fatal): {bump_err}")
     except Exception as e:
         log.critical(f"💥 Could not connect: {e}")
         await _safe_disconnect(client)
@@ -1278,6 +1290,16 @@ async def run_persistent_mode(webhook, store, storage, bootstrap: dict | None) -
             await client.connect()
             me = await client.get_me()
             log.info(f"✅ Connected as @{me.username or me.id} via {proxy['host']}:{proxy['port']}")
+            # Successful connection = the proxy works — bump freshness + keep
+            # its verified verdict (same reasoning as run-once mode). Non-fatal.
+            if storage is not None:
+                try:
+                    await storage.mark_used(
+                        proxy["host"], int(proxy["port"]),
+                        used_at=datetime.now(timezone.utc).isoformat(),
+                    )
+                except Exception as bump_err:
+                    log.warning(f"  ⚠️ mark_used failed (non-fatal): {bump_err}")
             if PROXY_CHANNELS:
                 report = await refresh_pool(client, storage, PROXY_CHANNELS, API_ID, API_HASH)
                 log.info(f"🔄 Proxy pool refresh: {report}")

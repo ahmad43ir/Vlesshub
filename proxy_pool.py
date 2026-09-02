@@ -178,6 +178,16 @@ class SupabaseStorage:
             body["last_ok"] = None
         await self._patch(host, port, body)
 
+    async def mark_used(self, host: str, port: int, *, used_at: str) -> None:
+        """The scraper just used this proxy for a live Telegram connection.
+
+        That's stronger liveness evidence than a synthetic handshake test:
+        bump last_checked AND stamp last_ok=true (a working connection is
+        the definition of a working proxy), so the pool never goes stale
+        while a proxy is actually serving the scraper.
+        """
+        await self._patch(host, port, {"last_checked": used_at, "last_ok": True})
+
     async def deactivate(self, host: str, port: int) -> None:
         await self._patch(host, port, {"is_active": False, "deactivated_at": datetime.now(timezone.utc).isoformat()})
 
@@ -345,6 +355,14 @@ class JsonStorage:
                     r["is_active"] = True
                     r["deactivated_at"] = None
                     r["last_ok"] = None
+        self._save()
+
+    async def mark_used(self, host: str, port: int, *, used_at: str) -> None:
+        """Used-for-connection freshness bump (JSON fallback) — mirrors SupabaseStorage."""
+        for r in self._load_file():
+            if r["host"].lower() == host.lower() and int(r["port"]) == int(port):
+                r["last_checked"] = used_at
+                r["last_ok"] = True
         self._save()
 
     async def cleanup_dead_proxies(self, max_age_days: int = 3) -> int:
