@@ -2,10 +2,15 @@
 # 🕵️ vless-scraper — manual run-once job (GitHub Actions)
 # ============================================================
 # Started on demand from the Telegram bot with /scrape
-# (workflow_dispatch). The bot passes the chat_id as an input so
-# the workflow can report the result back to that chat; without
-# it, the run just logs. Scheduled cron is OFF for now (manual
-# only) — see AGENTS.md before re-enabling.
+# (workflow_dispatch), OR by an hourly schedule tick that is gated
+# on the bot's ⏱ Auto-scrape scheduler (scraper_config keys written
+# by the panel: scrape_schedule_enabled / scrape_schedule_hours).
+# A scheduled run only proceeds when an interval has elapsed; if the
+# scheduler is stopped, the tick exits in ~30 seconds without
+# installing anything or touching Telegram.
+#
+# Manual runs (bot /scrape) pass chat_id as an input so the workflow
+# can report the result back to that chat; scheduled runs just log.
 #
 # The scraper connects to Telegram through the MTProto proxy pool
 # stored in Supabase (scraper_proxies, managed with /addproxy),
@@ -34,7 +39,7 @@
 #   BOT_TOKEN      — only needed for the Telegram result report
 # ============================================================
 
-name: vless-scraper (manual)
+name: vless-scraper
 
 on:
   workflow_dispatch:
@@ -43,6 +48,11 @@ on:
         description: 'Telegram chat_id to send the run report to (set by the bot /scrape)'
         required: false
         type: string
+  schedule:
+    # Hourly tick — a cheap gate step decides whether the scraper
+    # actually runs (see "Schedule gate" below). Hourly (not finer)
+    # keeps the Actions budget safe even with the gate overhead.
+    - cron: '7 * * * *'
 
 # Prevent overlapping runs from the same account (queue, don't cancel).
 concurrency:
@@ -67,6 +77,85 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # ── Schedule gate (scheduled ticks only) ──────────────────
+      # Reads the bot ⏱ panel's config from scraper_config and sets
+      # SCHEDULE_DUE=false to skip the run when it isn't due:
+      #   scrape_schedule_enabled = "true"  → scheduler running
+      #   scrape_schedule_hours   = "6"|"12"|"24"
+      #   scrape_schedule_last    = ISO timestamp of the last auto-run
+      # When due, stamps scrape_schedule_last=now so the next tick
+      # waits another full interval. Fail-safe: if Supabase is
+      # unreachable the tick skips (never auto-runs blind).
+      - name: Schedule gate (skip if auto-scrape not due)
+        if: ${{ github.event_name == 'schedule' }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.parse
+          import urllib.request
+          from datetime import datetime, timezone
+
+          sb_url = os.environ.get("SUPABASE_URL", "").rstrip("/")
+          sb_key = os.environ.get("SUPABASE_KEY", "")
+
+          def skip(reason):
+              print(f"Skipping scheduled run: {reason}")
+              with open(os.environ["GITHUB_ENV"], "a") as f:
+                  f.write("SCHEDULE_DUE=false\n")
+
+          def cfg(key):
+              url = f"{sb_url}/rest/v1/scraper_config?select=value&key=eq.{urllib.parse.quote(key)}"
+              req = urllib.request.Request(
+                  url, headers={"apikey": sb_key, "Authorization": f"Bearer {sb_key}"}
+              )
+              with urllib.request.urlopen(req, timeout=20) as r:
+                  rows = json.loads(r.read())
+              return rows[0]["value"] if rows else None
+
+          try:
+              if not sb_url or not sb_key:
+                  skip("SUPABASE_URL / SUPABASE_KEY not set")
+                  raise SystemExit(0)
+              if cfg("scrape_schedule_enabled") != "true":
+                  skip("auto-scrape scheduler is stopped")
+                  raise SystemExit(0)
+              hours = int(cfg("scrape_schedule_hours") or 12)
+              last = cfg("scrape_schedule_last")
+              now = datetime.now(timezone.utc)
+              due = True
+              if last:
+                  t = datetime.fromisoformat(str(last).replace("Z", "+00:00"))
+                  due = (now - t).total_seconds() >= hours * 3600
+              if not due:
+                  skip(f"next auto-scrape is every {hours}h (last: {last})")
+                  raise SystemExit(0)
+              # Due: stamp the fire time so the next hourly tick waits.
+              stamp = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+              req = urllib.request.Request(
+                  f"{sb_url}/rest/v1/scraper_config?on_conflict=key",
+                  method="POST",
+                  data=json.dumps(
+                      {"key": "scrape_schedule_last", "value": stamp}
+                  ).encode(),
+                  headers={
+                      "apikey": sb_key,
+                      "Authorization": f"Bearer {sb_key}",
+                      "Content-Type": "application/json",
+                      "Prefer": "resolution=merge-duplicates",
+                  },
+              )
+              urllib.request.urlopen(req, timeout=20)
+              print(f"Auto-scrape due (every {hours}h, last: {last or 'never'}) — proceeding.")
+          except SystemExit:
+              raise
+          except Exception as e:
+              skip(f"could not check schedule ({e})")
+          PY
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -74,13 +163,14 @@ jobs:
           cache-dependency-path: requirements.txt
 
       - name: Install dependencies
+        if: ${{ env.SCHEDULE_DUE != 'false' }}
         run: pip install -r requirements.txt
 
       # Skips gracefully until the Telegram credentials are added
       # (avoids noisy failing runs). Output is teed to run.log so
       # the report step can send a summary to the bot chat.
       - name: Run scraper (fetch recent messages)
-        if: ${{ env.TG_READY == 'true' }}
+        if: ${{ env.TG_READY == 'true' && env.SCHEDULE_DUE != 'false' }}
         env:
           API_ID: ${{ secrets.API_ID }}
           API_HASH: ${{ secrets.API_HASH }}
@@ -107,7 +197,7 @@ jobs:
         run: set -o pipefail; python main.py 2>&1 | tee run.log
 
       - name: No Telegram credentials yet
-        if: ${{ env.TG_READY != 'true' }}
+        if: ${{ env.TG_READY != 'true' && env.SCHEDULE_DUE != 'false' }}
         run: echo "Telegram credentials not configured yet — add API_ID, API_HASH and TELEGRAM_SESSION as repository secrets (CHANNELS is optional when the bot /addchannel list is set)." > run.log
 
       # Report the result back to the bot chat. Sent from the BOT
@@ -116,7 +206,10 @@ jobs:
       # previous one (tracked in scraper_config) so reports don't pile
       # up in the chat.
       - name: Report result to Telegram
-        if: ${{ always() && inputs.chat_id != '' && env.BOT_TOKEN_SET == 'true' }}
+        # Manual runs report to the chat_id input; scheduled runs report
+        # to the admin chat saved by the bot on the last manual /scrape
+        # (scraper_config key scrape_report_chat_id).
+        if: ${{ always() && env.BOT_TOKEN_SET == 'true' && (inputs.chat_id != '' || env.SCHEDULE_DUE != 'false') }}
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHAT_ID: ${{ inputs.chat_id }}
@@ -138,10 +231,29 @@ jobs:
               pass
 
           token = os.environ["BOT_TOKEN"]
-          chat = os.environ["CHAT_ID"]
+          chat = os.environ.get("CHAT_ID", "")
           sb_url = os.environ.get("SUPABASE_URL", "").rstrip("/")
           sb_key = os.environ.get("SUPABASE_KEY", "")
           report_key = f"scrape_report_message_id:{chat}"
+
+          # Scheduled runs have no chat_id input — fall back to the admin
+          # chat saved by the bot on the last manual /scrape.
+          if not chat and sb_url and sb_key:
+              try:
+                  req = urllib.request.Request(
+                      sb_url + "/rest/v1/scraper_config?select=value&key=eq.scrape_report_chat_id",
+                      headers={"apikey": sb_key, "Authorization": "Bearer " + sb_key},
+                  )
+                  with urllib.request.urlopen(req, timeout=20) as r:
+                      rows = json.loads(r.read())
+                  if rows and rows[0].get("value"):
+                      chat = str(rows[0]["value"])
+                      report_key = f"scrape_report_message_id:{chat}"
+              except Exception as e:
+                  print(f"report chat fallback failed: {e}")
+          if not chat:
+              print("No chat to report to (no chat_id input, no saved scrape_report_chat_id).")
+              raise SystemExit(0)
 
 
           def api(method, body):
