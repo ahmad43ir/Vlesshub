@@ -54,7 +54,7 @@ const GH_PAT = Deno.env.get('GH_PAT') ?? '';
 const GH_REPO = Deno.env.get('GH_REPO') ?? 'ahmad43ir/VlessHub';
 const GH_REF = Deno.env.get('GH_REF') ?? 'main';
 const GH_WORKFLOW = Deno.env.get('GH_WORKFLOW') ?? 'scrape.yml';
-const DOWNLOAD_URL = Deno.env.get('DOWNLOAD_URL') ?? 'https://github.com/ahmad43ir/Vlesshub/releases/latest';
+const DOWNLOAD_URL = Deno.env.get('DOWNLOAD_URL') ?? 'https://vlesshub-2i2.pages.dev';
 const CONTACT_EMAIL = Deno.env.get('CONTACT_EMAIL') ?? 'https://t.me/Vless_hub_bot';
 
 if (ADMIN_IDS.size === 0) {
