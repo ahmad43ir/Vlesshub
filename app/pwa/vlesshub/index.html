@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+<meta name="theme-color" content="#4CFF88"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<title>VlessHub</title>
+<link rel="manifest" href="manifest.json"/>
+<link rel="apple-touch-icon" href="icons/icon-192.png"/>
+<!-- Mobile-only gate -->
+<script>
+(function(){
+  var isMobile = /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+  if(!isMobile){
+    document.documentElement.innerHTML = '<head><title>VlessHub</title><style>body{font-family:-apple-system,sans-serif;background:#0B1A12;color:#E8F5E9;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center;padding:20px}h1{color:#4CFF88;font-size:24px}p{color:#9CB8A4;margin-top:12px;font-size:14px}</style></head><body><div><h1>VlessHub</h1><p>This app is for mobile devices only.<br>Open on your phone to install it as an app.</p></div></body>';
+    throw new Error('desktop blocked');
+  }
+})();
+</script>
+<!-- Yektanet analytics + ad (proxied) -->
+<script>
+!function(e,t,n){e.yektanetAnalyticsObject=n,e[n]=e[n]||function(){e[n].q.push(arguments)},e[n].q=e[n].q||[];var a=t.getElementsByTagName("head")[0],r=new Date,c="https://yektanet-proxy.mobileahmad43-a18.workers.dev/yektanet/superscript/BNV1QlRY/native-com.chobgroup.vlesshub-48190/yn_pub.js?v="+r.getFullYear().toString()+"0"+r.getMonth()+"0"+r.getDate()+"0"+r.getHours(),s=t.createElement("link");s.rel="preload",s.as="script",s.href=c,a.appendChild(s);var l=t.createElement("script");l.async=!0,l.src=c,a.appendChild(l)}(window,document,"yektanet");
+</script>
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#0B1A12;--bg2:#0E2218;--card:rgba(14,34,24,0.85);
+  --border:rgba(76,255,136,0.15);--neon:#4CFF88;--neon2:#39FF14;
+  --text:#E8F5E9;--text2:#9CB8A4;--muted:#5A7A64;
+  --red:#FF5252;--orange:#FFA726;--lime:#8BC34A;
+}
+html,body{height:100%;overflow:hidden}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text)}
+a{color:var(--neon);text-decoration:none}
+
+/* ── Layout ── */
+.app{display:flex;flex-direction:column;height:100dvh}
+.header{padding:16px 16px 0;flex-shrink:0}
+.header h1{font-size:26px;font-weight:800;color:var(--neon)}
+.header p{font-size:12px;color:var(--text2);margin-top:2px}
+.tabs{display:flex;gap:4px;padding:12px 16px 0;flex-shrink:0}
+.tab{flex:1;text-align:center;padding:8px 0;border-radius:10px;font-size:13px;font-weight:600;color:var(--muted);background:transparent;border:none;cursor:pointer;transition:all .2s}
+.tab.active{background:rgba(76,255,136,0.12);color:var(--neon)}
+.tab-bar{display:flex;gap:4px;padding:12px 16px 0;flex-shrink:0;border-bottom:1px solid var(--border)}
+.content{flex:1;overflow-y:auto;padding:12px 16px 80px;-webkit-overflow-scrolling:touch}
+
+/* ── Cards ── */
+.card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:10px}
+.card-title{font-size:15px;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.card-meta{font-size:11px;color:var(--muted);margin-top:3px}
+
+/* ── Buttons ── */
+.actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.btn{display:inline-flex;align-items:center;gap:5px;padding:7px 14px;border-radius:10px;font-size:12px;font-weight:600;border:none;cursor:pointer;transition:all .15s}
+.btn-neon{background:rgba(76,255,136,0.12);color:var(--neon)}
+.btn-neon:active{background:rgba(76,255,136,0.25)}
+.btn-orange{background:rgba(255,167,38,0.12);color:var(--orange)}
+.btn-orange:active{background:rgba(255,167,38,0.25)}
+.btn-icon{font-size:14px}
+
+/* ── Refresh / Sort bar ── */
+.toolbar{display:flex;gap:8px;align-items:center;margin-bottom:10px}
+.toolbar .spacer{flex:1}
+.chip{padding:6px 12px;border-radius:8px;font-size:12px;font-weight:600;border:1px solid var(--border);background:rgba(76,255,136,0.08);color:var(--neon);cursor:pointer}
+.chip:active{background:rgba(76,255,136,0.2)}
+.chip.active{background:rgba(76,255,136,0.2);border-color:var(--neon)}
+
+/* ── More button ── */
+.more{display:block;width:100%;padding:12px;text-align:center;border-radius:12px;border:1px solid var(--border);background:rgba(76,255,136,0.08);color:var(--neon);font-size:13px;font-weight:700;cursor:pointer;margin-top:6px}
+.more:active{background:rgba(76,255,136,0.2)}
+
+/* ── Loading / Empty ── */
+.center{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 20px;text-align:center}
+.spinner{width:32px;height:32px;border:3px solid var(--border);border-top-color:var(--neon);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.empty{color:var(--muted);font-size:14px}
+
+/* ── File card ── */
+.file-icon{width:40px;height:40px;border-radius:10px;background:rgba(14,34,24,0.8);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--neon);flex-shrink:0}
+.file-icon.encrypted{color:var(--orange)}
+.progress-bar{height:4px;border-radius:2px;background:var(--border);margin-top:8px;overflow:hidden}
+.progress-fill{height:100%;background:var(--neon);transition:width .3s}
+
+/* ── Toast ── */
+.toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:var(--bg2);border:1px solid var(--border);color:var(--text);padding:10px 20px;border-radius:10px;font-size:13px;font-weight:600;z-index:100;opacity:0;transition:opacity .3s;pointer-events:none}
+.toast.show{opacity:1}
+
+/* ── Sticky banner ad ── */
+.ad-banner{position:fixed;bottom:0;left:0;right:0;height:50px;z-index:80;display:flex;align-items:center;justify-content:center;background:var(--bg);border-top:1px solid var(--border)}
+.ad-banner iframe{border:none;width:320px;height:50px;max-width:100%}
+
+/* ── Floating widget ad (شناور) ── */
+.ad-floating{position:fixed;bottom:60px;right:12px;z-index:80;min-width:200px;max-width:300px;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.4);background:var(--bg2);border:1px solid var(--border)}
+.ad-floating iframe{border:none;width:100%;min-height:120px}
+
+/* ── Install banner ── */
+.install-banner{position:fixed;bottom:50px;left:0;right:0;background:var(--bg2);border-top:1px solid var(--border);padding:14px 16px;display:none;z-index:90}
+.install-banner.show{display:flex;align-items:center;gap:12px}
+.install-banner p{flex:1;font-size:13px;color:var(--text2)}
+.install-btn{padding:8px 16px;border-radius:8px;background:var(--neon);color:var(--bg);font-size:13px;font-weight:700;border:none;cursor:pointer}
+.install-close{background:none;border:none;color:var(--muted);font-size:18px;cursor:pointer;padding:4px}
+
+/* ── Version gate ── */
+.gate{position:fixed;inset:0;background:var(--bg);z-index:200;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:32px}
+.gate h2{font-size:22px;color:var(--neon);margin-bottom:12px}
+.gate p{color:var(--text2);font-size:14px;margin-bottom:24px}
+.gate a{display:inline-block;padding:12px 28px;border-radius:12px;background:var(--neon);color:var(--bg);font-weight:700;font-size:15px}
+
+/* ── Ad interstitial ── */
+.ad-overlay{position:fixed;inset:0;background:rgba(11,26,18,0.95);z-index:300;display:none;flex-direction:column;align-items:center;justify-content:center}
+.ad-overlay.show{display:flex}
+.ad-close{position:absolute;top:12px;right:12px;width:36px;height:36px;border-radius:50%;background:rgba(255,255,255,0.1);border:none;color:#fff;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:301}
+.ad-close:active{background:rgba(255,255,255,0.2)}
+.ad-container{width:100%;max-width:400px;min-height:300px;display:flex;align-items:center;justify-content:center}
+.ad-label{position:absolute;bottom:16px;font-size:11px;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="app" id="app">
+  <!-- Header -->
+  <div class="header">
+    <h1>VlessHub</h1>
+    <p id="subtitle">Free VLESS configs & MTProto proxies</p>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tab-bar">
+    <button class="tab active" data-tab="mtproto">📡 MTProto</button>
+    <button class="tab" data-tab="links">🔗 Links</button>
+    <button class="tab" data-tab="files">📁 Files</button>
+  </div>
+
+  <!-- Content -->
+  <div class="content" id="content"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- Yektanet full-screen ad overlay -->
+<div class="ad-overlay" id="adOverlay">
+  <button class="ad-close" id="adClose">✕</button>
+  <div class="ad-container" id="adContainer"></div>
+  <span class="ad-label">Advertisement</span>
+</div>
+
+<!-- Sticky banner ad (Adsterra 320×50) -->
+<!-- Standard Adsterra banner embed: atOptions + invoke.js directly in the
+     slot so invoke.js's internal document.write renders the iframe HERE
+     during page parse (never call it after load — it would wipe the page). -->
+<div class="ad-banner" id="adBanner">
+  <script>
+    atOptions = {
+      'key' : 'e6b75f545322a6c8d1724204f4410c11',
+      'format' : 'iframe',
+      'height' : 50,
+      'width' : 320,
+      'params' : {}
+    };
+  </script>
+  <script src="https://www.highrevenueformat.com/e6b75f545322a6c8d1724204f4410c11/invoke.js"></script>
+</div>
+
+<!-- Social Bar (interstitial/floating widget) -->
+<script src="https://pl31139270.profitableratecpmnetwork.com/3c/26/8b/3c268bc9c635f59789c859f9de8c368c.js" async></script>
+
+<div class="install-banner" id="installBanner">
+  <p>Install VlessHub for quick access</p>
+  <button class="install-btn" id="installBtn">Install</button>
+  <button class="install-close" id="installClose">✕</button>
+</div>
+
+<script>
+// ── Ad config ──
+// NOTE: the Yektanet superscript loaded below is the analytics/retargeting
+// SDK only — it does NOT serve display ads. The interstitial overlay shows
+// Adsterra content once the Social Bar zone ID is wired in (see bottom).
+const AD_POS_ID = '122583';
+let actionCount = parseInt(localStorage.getItem('vh_ad_count') || '0');
+
+// ── Config ──
+const SB = 'https://bprkazfxqmanrybiexnh.supabase.co';
+const KEY = 'sb_publishable_h2oEryaNO2GWDEYw-flm3A_EV9pP9Co';
+const PROXY_API = 'https://vlesshub-api.mobileahmad43-a18.workers.dev';
+
+const headers = { apikey: KEY, Authorization: `Bearer ${KEY}`, 'Content-Type': 'application/json' };
+
+// ── State ──
+let activeTab = 'mtproto';
+let servers = [], files = [], proxies = [];
+let visibleLinks = 10, visibleFiles = 5;
+const hiddenLinks = JSON.parse(localStorage.getItem('vh_hidden_links') || '[]');
+const hiddenFiles = JSON.parse(localStorage.getItem('vh_hidden_files') || '[]');
+
+// ── Init ──
+document.addEventListener('DOMContentLoaded', () => {
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
+  checkVersion();
+  loadTab('mtproto');
+  document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => loadTab(t.dataset.tab)));
+  document.getElementById('installClose').addEventListener('click', () => document.getElementById('installBanner').classList.remove('show'));
+  document.getElementById('installBtn').addEventListener('click', installApp);
+  document.getElementById('adClose').addEventListener('click', closeAd);
+  window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); window._deferredPrompt = e; document.getElementById('installBanner').classList.add('show'); });
+  // Try to load Yektanet ad after a short delay
+  setTimeout(loadYektanetAd, 2000);
+});
+
+// ── Version gate ──
+async function checkVersion() {
+  try {
+    const r = await fetch(`${SB}/rest/v1/app_config?id=eq.1&select=*`, { headers });
+    const [cfg] = await r.json();
+    if (!cfg) return;
+    const ver = '0.2.2';
+    if (cfg.minimum_version && ver < cfg.minimum_version) {
+      document.getElementById('app').innerHTML = `<div class="gate"><h2>Update Required</h2><p>You're on v${ver}. Minimum required: v${cfg.minimum_version}</p><a href="${cfg.update_url || '#'}" target="_blank">Update</a></div>`;
+    }
+  } catch(e) {}
+}
+
+// ── Tab switching ──
+function loadTab(tab) {
+  activeTab = tab;
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+  const content = document.getElementById('content');
+  content.innerHTML = '<div class="center"><div class="spinner"></div></div>';
+  if (tab === 'mtproto') loadProxies();
+  else if (tab === 'links') loadServers();
+  else loadFiles();
+}
+
+// ── MTProto ──
+async function loadProxies() {
+  try {
+    const r = await fetch(`${PROXY_API}/proxies`);
+    const data = await r.json();
+    proxies = data.proxies || [];
+    renderProxies();
+  } catch(e) {
+    document.getElementById('content').innerHTML = '<div class="center"><p class="empty">Failed to load proxies</p></div>';
+  }
+}
+
+function renderProxies() {
+  const c = document.getElementById('content');
+  if (!proxies.length) { c.innerHTML = '<div class="center"><p class="empty">No proxies available</p></div>'; return; }
+  let html = `<div class="toolbar"><span style="font-size:13px;color:var(--text2)">${proxies.length} proxies</span><div class="spacer"></div><button class="chip" onclick="maybeShowAd(()=>loadProxies())">↻ Refresh</button></div>`;
+  proxies.forEach(p => {
+    const link = p.link || `tg://proxy?server=${p.host}&port=${p.port}&secret=${p.secret}`;
+    const label = p.source || p.host;
+    html += `<div class="card"><div class="card-title">${esc(label)}</div><div class="card-meta">${esc(p.host)}:${p.port}</div><div class="actions">
+      <button class="btn btn-neon" onclick="maybeShowAd(()=>copyText('${jsStr(p.link)}','Telegram proxy copied'))">📋 Copy</button>
+      <button class="btn btn-orange" onclick="maybeShowAd(()=>shareText('${jsStr(p.link)}','Share proxy'))">📤 Share</button>
+      <button class="btn btn-neon" onclick="openTelegram('${jsStr(link)}')">✈️ Open</button>
+    </div></div>`;
+  });
+  c.innerHTML = html;
+}
+
+// ── Links (servers) ──
+async function loadServers() {
+  try {
+    const r = await fetch(`${SB}/rest/v1/servers?select=*&order=created_at.desc`, { headers });
+    servers = (await r.json()).filter(s => !hiddenLinks.includes(s.config));
+    renderServers();
+  } catch(e) {
+    document.getElementById('content').innerHTML = '<div class="center"><p class="empty">Failed to load configs</p></div>';
+  }
+}
+
+function renderServers() {
+  const c = document.getElementById('content');
+  if (!servers.length) { c.innerHTML = '<div class="center"><p class="empty">No configs yet</p></div>'; return; }
+  const shown = servers.slice(0, visibleLinks);
+  let html = `<div class="toolbar">
+    <div class="spacer"></div>
+    <button class="chip" onclick="maybeShowAd(()=>loadServers())">↻ Refresh</button>
+  </div>`;
+  shown.forEach(s => {
+    const meta = [s.source_channel && `source: @${s.source_channel}`, s.type, `${s.flag||''} ${s.country||''}`.trim()].filter(Boolean).join(' · ');
+    const time = s.created_at ? formatTime(s.created_at) : '';
+    html += `<div class="card"><div class="card-title">${esc(s.name||'Server')}</div><div class="card-meta">${esc(meta)}${time ? ' · 🕗 '+esc(time) : ''}</div><div class="actions">
+      <button class="btn btn-neon" onclick="maybeShowAd(()=>copyText('${jsStr(s.config)}','Config copied'))">📋 Copy</button>
+      <button class="btn btn-orange" onclick="maybeShowAd(()=>openConfig('${jsStr(s.config)}'))">📤 Export</button>
+    </div></div>`;
+  });
+  if (visibleLinks < servers.length) html += `<button class="more" onclick="maybeShowAd(()=>showMoreLinks())">More</button>`;
+  c.innerHTML = html;
+}
+
+function showMoreLinks() { visibleLinks += 10; renderServers(); }
+function showMoreFiles() { visibleFiles += 5; renderFiles(); }
+
+// ── Files ──
+async function loadFiles() {
+  try {
+    const r = await fetch(`${SB}/rest/v1/vpn_files?select=*&order=uploaded_at.desc`, { headers });
+    files = (await r.json()).filter(f => !hiddenFiles.includes(f.id));
+    renderFiles();
+  } catch(e) {
+    document.getElementById('content').innerHTML = '<div class="center"><p class="empty">Failed to load files</p></div>';
+  }
+}
+
+function renderFiles() {
+  const c = document.getElementById('content');
+  if (!files.length) { c.innerHTML = '<div class="center"><p class="empty">No files yet</p></div>'; return; }
+  const shown = files.slice(0, visibleFiles);
+  let html = `<div class="toolbar"><span style="font-size:13px;color:var(--text2)">${files.length} files</span><div class="spacer"></div><button class="chip" onclick="maybeShowAd(()=>loadFiles())">↻ Refresh</button></div>`;
+  shown.forEach(f => {
+    const src = f.source_channel ? `@${f.source_channel}` : '';
+    const enc = f.is_encrypted;
+    const time = f.uploaded_at ? formatTime(f.uploaded_at) : '';
+    const size = formatSize(f.size_bytes);
+    const cfgs = f.config_count > 0 ? ` · ${f.config_count} configs` : '';
+    const proto = fileProtocol(f);
+    html += `<div class="card" style="display:flex;gap:12px;align-items:center">
+      <div class="file-icon ${enc?'encrypted':''}">${enc?'🔒':(fileExt(f.filename)||'FILE')}</div>
+      <div style="flex:1;min-width:0">
+        <div class="card-title">${esc(f.filename||'File')}</div>
+        <div class="card-meta">${src ? 'source: '+esc(src)+' · ' : ''}${proto ? 'protocol: '+esc(proto) : ''}</div>
+        <div class="card-meta">${size}${time?' · 🕗 '+esc(time):''}${cfgs}</div>
+      </div>
+      <button class="btn btn-neon" onclick="maybeShowAd(()=>downloadFile('${f.id}','${jsStr(f.filename||'file')}'))">⬇️</button>
+    </div>`;
+  });
+  if (visibleFiles < files.length) html += `<button class="more" onclick="maybeShowAd(()=>showMoreFiles())">More</button>`;
+  c.innerHTML = html;
+}
+
+async function downloadFile(id, filename) {
+  toast('Downloading...');
+  try {
+    const r = await fetch(`${SB}/rest/v1/vpn_files?id=eq.${id}&select=content`, { headers });
+    if (!r.ok) { toast('Download failed'); return; }
+    const [row] = await r.json();
+    if (!row?.content) { toast('File not found'); return; }
+    // PostgREST serves bytea as "\x<hex>". The bots store the file's
+    // base64 text into the bytea column (saveVpnFile), so the hex bytes
+    // are an ASCII base64 string: strip \x -> hex-decode -> base64-decode
+    // -> original file bytes.
+    let hex = row.content;
+    if (hex.startsWith('\\x')) hex = hex.slice(2);
+    const hexBytes = new Uint8Array(hex.length / 2);
+    for (let i = 0; i < hexBytes.length; i++) {
+      hexBytes[i] = parseInt(hex.substr(i * 2, 2), 16);
+    }
+    let decoded = '';
+    for (let i = 0; i < hexBytes.length; i++) decoded += String.fromCharCode(hexBytes[i]);
+    let arr;
+    if (/^[A-Za-z0-9+/]*={0,2}$/.test(decoded) && decoded.length % 4 === 0) {
+      // Looks like the stored base64 text — decode it back to the raw file.
+      const bin = atob(decoded);
+      arr = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    } else {
+      // Raw binary was stored directly — use the hex-decoded bytes as-is.
+      arr = hexBytes;
+    }
+    // A concrete MIME type stops Chrome from sniffing the content and
+    // appending an extension (.npvt -> .npvt.txt / .npvt.xml).
+    const blob = new Blob([arr], { type: blobTypeFor(filename) });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    toast(`${filename} downloaded`);
+  } catch(e) { toast('Download failed'); }
+}
+
+function blobTypeFor(filename) {
+  const ext = (filename.split('.').pop() || '').toLowerCase();
+  const map = {
+    txt: 'text/plain', log: 'text/plain', json: 'application/json', xml: 'application/xml',
+    yaml: 'text/yaml', yml: 'text/yaml', csv: 'text/csv',
+    pdf: 'application/pdf', zip: 'application/zip', apk: 'application/vnd.android.package-archive',
+    jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp',
+  };
+  return map[ext] || 'application/octet-stream';
+}
+
+// ── Helpers ──
+// ── Yektanet ad ──
+function loadYektanetAd() {
+  // Ad slot placeholder. The Yektanet superscript served on this page is
+  // the analytics/retargeting SDK only — it does NOT serve display ads, so
+  // nothing renders here until a real web publisher spot script (Yektanet
+  // publishers panel or another network) is wired in.
+  const container = document.getElementById('adContainer');
+  if (container.querySelector('[data-pos-id]')) return; // already loaded
+  const slot = document.createElement('div');
+  slot.setAttribute('data-pos-id', AD_POS_ID);
+  slot.style.cssText = 'width:100%;min-height:250px;display:flex;align-items:center;justify-content:center;';
+  container.appendChild(slot);
+}
+
+function maybeShowAd(callback) {
+  actionCount++;
+  localStorage.setItem('vh_ad_count', actionCount);
+  // Show the interstitial on every 3rd action.
+  // The overlay will show Adsterra content when the script is wired in.
+  if (actionCount >= 3) {
+    actionCount = 0;
+    localStorage.setItem('vh_ad_count', '0');
+    showAd(callback);
+  } else {
+    callback();
+  }
+}
+
+function showAd(callback) {
+  const overlay = document.getElementById('adOverlay');
+  overlay.classList.add('show');
+  window._adCallback = callback;
+  // Auto-close after 5s if no interaction
+  setTimeout(() => { if (overlay.classList.contains('show')) closeAd(); }, 8000);
+}
+
+function closeAd() {
+  document.getElementById('adOverlay').classList.remove('show');
+  const cb = window._adCallback;
+  window._adCallback = null;
+  if (cb) cb();
+}
+
+function copyText(text, msg) {
+  const ok = () => toast(msg);
+  const fail = () => toast('Copy failed');
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(ok).catch(() => (legacyCopy(text) ? ok() : fail()));
+  } else {
+    legacyCopy(text) ? ok() : fail();
+  }
+}
+
+// Fallback for Android WebViews / insecure contexts where the
+// asynchronous Clipboard API is unavailable or rejected.
+function legacyCopy(text) {
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.top = '0';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    ta.setSelectionRange(0, ta.value.length);
+    const ok = document.execCommand('copy');
+    ta.remove();
+    return ok;
+  } catch (e) { return false; }
+}
+
+function shareText(text, title) {
+  if (navigator.share) navigator.share({ title, text });
+  else copyText(text, 'Copied — share not supported');
+}
+
+function openConfig(raw) {
+  // Try common VPN clients
+  const schemes = ['v2rayng://install-config','nekobox://install-config','hiddify://import'];
+  let opened = false;
+  for (const s of schemes) {
+    try { window.location.href = s + '?url=' + encodeURIComponent(raw); opened = true; break; } catch(e) {}
+  }
+  if (!opened) copyText(raw, 'Config copied — import it in your client');
+}
+
+function openTelegram(link) {
+  window.location.href = link;
+}
+
+function formatTime(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const now = new Date();
+  const diff = (now - d) / 1000;
+  if (diff < 60) return 'just now';
+  if (diff < 3600) return Math.floor(diff/60) + 'm ago';
+  if (diff < 86400) return Math.floor(diff/3600) + 'h ago';
+  return Math.floor(diff/86400) + 'd ago';
+}
+
+function formatSize(bytes) {
+  if (!bytes) return '';
+  if (bytes >= 1048576) return (bytes/1048576).toFixed(1) + ' MB';
+  if (bytes >= 1024) return (bytes/1024).toFixed(1) + ' KB';
+  return bytes + ' B';
+}
+
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+
+// Escape for a single-quoted JS string literal that ends up inside a
+// double-quoted HTML attribute (inline onclick handlers). esc() is NOT
+// enough there: &#39; decodes back to ' inside the attribute and breaks
+// the JS string.
+function jsStr(s) {
+  return String(s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/\n/g,'\\n').replace(/\r/g,'');
+}
+
+function fileExt(name) {
+  return ((name||'').split('.').pop()||'').toUpperCase().slice(0,4);
+}
+
+function fileProtocol(f) {
+  if (f && f.mime_type) {
+    const t = f.mime_type.replace(/^(application|text)\//, '').trim();
+    if (t && t !== 'octet-stream') return t;
+  }
+  return fileExt(f && f.filename);
+}
+
+let toastTimer;
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+async function installApp() {
+  if (!window._deferredPrompt) return;
+  window._deferredPrompt.prompt();
+  const { outcome } = await window._deferredPrompt.userChoice;
+  if (outcome === 'accepted') document.getElementById('installBanner').classList.remove('show');
+  window._deferredPrompt = null;
+}
+</script>
+<!-- ═══════════════════════════════════════════════════════════════
+     AD NETWORK INTEGRATION (wired in)
+     1. Banner 320×50 → sticky bottom bar (#adBanner, embedded above)
+     2. Social Bar → self-positioning floating widget (شناور)
+     ═══════════════════════════════════════════════════════════════ -->
+
+</body>
+</html>
