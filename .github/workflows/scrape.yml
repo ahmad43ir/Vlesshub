@@ -82,10 +82,11 @@ jobs:
       # SCHEDULE_DUE=false to skip the run when it isn't due:
       #   scrape_schedule_enabled = "true"  → scheduler running
       #   scrape_schedule_hours   = "6"|"12"|"24"
-      #   scrape_schedule_last    = ISO timestamp of the last auto-run
-      # When due, stamps scrape_schedule_last=now so the next tick
-      # waits another full interval. Fail-safe: if Supabase is
-      # unreachable the tick skips (never auto-runs blind).
+      #   scrape_schedule_last    = ISO timestamp of the last SUCCESSFUL run
+      # The fire time is stamped by the report step only after a successful
+      # run, so failed scheduled runs retry on the next hourly tick instead
+      # of waiting a full interval. Fail-safe: if Supabase is unreachable
+      # the tick skips (never auto-runs blind).
       - name: Schedule gate (skip if auto-scrape not due)
         if: ${{ github.event_name == 'schedule' }}
         env:
@@ -133,22 +134,6 @@ jobs:
               if not due:
                   skip(f"next auto-scrape is every {hours}h (last: {last})")
                   raise SystemExit(0)
-              # Due: stamp the fire time so the next hourly tick waits.
-              stamp = now.strftime("%Y-%m-%dT%H:%M:%SZ")
-              req = urllib.request.Request(
-                  f"{sb_url}/rest/v1/scraper_config?on_conflict=key",
-                  method="POST",
-                  data=json.dumps(
-                      {"key": "scrape_schedule_last", "value": stamp}
-                  ).encode(),
-                  headers={
-                      "apikey": sb_key,
-                      "Authorization": f"Bearer {sb_key}",
-                      "Content-Type": "application/json",
-                      "Prefer": "resolution=merge-duplicates",
-                  },
-              )
-              urllib.request.urlopen(req, timeout=20)
               print(f"Auto-scrape due (every {hours}h, last: {last or 'never'}) — proceeding.")
           except SystemExit:
               raise
@@ -222,6 +207,7 @@ jobs:
           import re
           import urllib.parse
           import urllib.request
+          from datetime import datetime, timezone
 
           log_text = ""
           try:
@@ -328,6 +314,15 @@ jobs:
                   )
               else:
                   send("🤖 *Scraper run finished* (details in the Actions log)")
+              # Success: stamp the schedule so the next auto-run waits a full
+              # interval. (Failed runs skip this → the next hourly tick retries.)
+              if sb_url and sb_key:
+                  stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                  sb_request(
+                      "scraper_config?on_conflict=key",
+                      method="POST",
+                      body={"key": "scrape_schedule_last", "value": stamp},
+                  )
           elif "No proxy available" in log_text:
               send(
                   "❌ *Scraper run failed — no working proxy.*\n\n"
