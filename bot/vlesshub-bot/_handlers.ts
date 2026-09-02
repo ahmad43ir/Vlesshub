@@ -1151,6 +1151,10 @@ async function handleCallback(ctx: BotContext, query: any): Promise<void> {
       await edit(scheduleText(s), { parse_mode: 'Markdown', reply_markup: scheduleKeyboard(s) });
     } else if (action === 'schedset' || action === 'schedstart' || action === 'schedstop') {
       await tg.answerCallbackQuery(ctx.token, query.id);
+      // Scheduler actions imply this is the admin chat — remember it so
+      // scheduled-run failure reports have a destination even if the
+      // admin never used manual /scrape.
+      setConfig(ctx.supabase, 'scrape_report_chat_id', String(chatId));
       if (action === 'schedset') {
         const hours = Number(data.split(':')[2]);
         if (!ALLOWED_INTERVALS.includes(hours)) {
