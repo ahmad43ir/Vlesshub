@@ -159,6 +159,25 @@ class SupabaseStorage:
         body = {"last_ok": last_ok, "last_checked": checked}
         await self._patch(host, port, body)
 
+    async def mark_seen(self, host: str, port: int, *, seen_at: str, secret: str | None = None,
+                        reactivate: bool = False) -> None:
+        """A previously known proxy was re-posted in a proxy channel.
+
+        Re-sighting is fresh liveness evidence: the channel just advertised
+        it again, so refresh last_checked (keeps freshness-window consumers
+        happy) and, when the row had been deactivated, bring it back as an
+        untested candidate (last_ok cleared) so the tester re-verifies it.
+        If the repost carries a NEW secret, store it — the old one is stale.
+        """
+        body: dict = {"last_checked": seen_at}
+        if secret is not None:
+            body["secret"] = secret
+        if reactivate:
+            body["is_active"] = True
+            body["deactivated_at"] = None
+            body["last_ok"] = None
+        await self._patch(host, port, body)
+
     async def deactivate(self, host: str, port: int) -> None:
         await self._patch(host, port, {"is_active": False, "deactivated_at": datetime.now(timezone.utc).isoformat()})
 
@@ -314,6 +333,20 @@ class JsonStorage:
                 r["deactivated_at"] = datetime.now(timezone.utc).isoformat()
         self._save()
 
+    async def mark_seen(self, host: str, port: int, *, seen_at: str, secret: str | None = None,
+                        reactivate: bool = False) -> None:
+        """Re-sighting bump (JSON fallback) — mirrors SupabaseStorage.mark_seen."""
+        for r in self._load_file():
+            if r["host"].lower() == host.lower() and int(r["port"]) == int(port):
+                r["last_checked"] = seen_at
+                if secret is not None:
+                    r["secret"] = secret
+                if reactivate:
+                    r["is_active"] = True
+                    r["deactivated_at"] = None
+                    r["last_ok"] = None
+        self._save()
+
     async def cleanup_dead_proxies(self, max_age_days: int = 3) -> int:
         """Delete dead proxies (is_active=False) older than max_age_days. Returns count deleted."""
         try:
@@ -421,6 +454,8 @@ async def refresh_pool(
         "scanned_channels": len(proxy_channels),
         "candidates": 0,
         "added": 0,
+        "re_sighted": 0,
+        "touched": 0,
         "tested": 0,
         "working": 0,
     }
@@ -456,28 +491,75 @@ async def refresh_pool(
             log.warning(f"  ⚠️ Could not scrape proxy channel @{ch}: {e}")
     summary["candidates"] = len(candidates)
 
-    # 2. Add unknown candidates to the pool, track which are newly added.
-    known = {(r.get("host", "").lower(), int(r.get("port") or 0)) for r in await storage.load()}
+    # 2. Add unknown candidates to the pool; re-sight known ones.
+    #    Channels frequently re-post the same host:port (often with a fresh
+    #    secret) — that is liveness evidence, so:
+    #      - new host:port            → insert, test first this run
+    #      - known + secret changed   → update secret, reactivate, clear the
+    #                                   old verdict, test first this run
+    #      - known + deactivated      → reactivate as untested, test first
+    #      - known + active           → bump last_checked ("seen alive at")
+    rows_before = await storage.load()
+    known = {(r.get("host", "").lower(), int(r.get("port") or 0)): r for r in rows_before}
     newly_added: list[dict] = []
+    re_sighted: list[dict] = []  # go to the front of the test queue
+    now_iso = datetime.now(timezone.utc).isoformat()
     for p, ch in candidates:
         key = (p["host"].lower(), int(p["port"]))
-        if key in known:
+        existing = known.get(key)
+        if existing is None:
+            await storage.upsert(p, source=f"@{ch}")
+            row = {**p, "source": f"@{ch}", "is_active": True, "last_ok": None}
+            known[key] = row
+            newly_added.append(row)
+            summary["added"] += 1
             continue
-        await storage.upsert(p, source=f"@{ch}")
-        known.add(key)
-        newly_added.append(p)
-        summary["added"] += 1
+        if any(r is existing for r in re_sighted) or any(
+            r.get("host", "").lower() == key[0] and int(r.get("port") or 0) == key[1]
+            for r in newly_added
+        ):
+            # Already queued for a first test this run — nothing more to do.
+            continue
+        old_secret = existing.get("secret") or None
+        new_secret = p.get("secret") or None
+        secret_changed = bool(new_secret) and new_secret != old_secret
+        was_dead = existing.get("is_active") is False
+        if secret_changed or was_dead:
+            await storage.mark_seen(
+                p["host"], int(p["port"]),
+                seen_at=now_iso,
+                secret=new_secret if secret_changed else None,
+                reactivate=True,
+            )
+            # Refresh the in-memory row so later stages see the new state.
+            existing["is_active"] = True
+            existing["deactivated_at"] = None
+            if secret_changed:
+                existing["secret"] = new_secret
+            existing["last_ok"] = None
+            re_sighted.append(existing)
+            summary["re_sighted"] += 1
+        else:
+            # Active and unchanged — still bump the freshness timestamp so
+            # consumers' staleness windows reset ("recharged").
+            await storage.mark_seen(p["host"], int(p["port"]), seen_at=now_iso)
+            existing["last_checked"] = now_iso
+            summary["touched"] += 1
     if summary["added"]:
         log.info(f"  ➕ {summary['added']} new proxy(ies) found in proxy channels")
+    if summary["re_sighted"]:
+        log.info(f"  🔁 {summary['re_sighted']} re-sighted (reposted/reactivated) — re-testing first")
+    if summary["touched"]:
+        log.info(f"  👀 {summary['touched']} already-active proxy(ies) re-posted — freshness bumped")
 
     # 3. Build test list: newly scraped proxies FIRST, then pool proxies that need testing.
     #    Cap total tests at MAX_TEST_PER_RUN (3).
     rows = await storage.load()
     now = datetime.now(timezone.utc)
 
-    # First: newly added proxies (never tested)
+    # First: newly added + re-sighted proxies (both unverified right now)
     to_test: list[dict] = []
-    for p in newly_added:
+    for p in [*newly_added, *re_sighted]:
         if len(to_test) >= MAX_TEST_PER_RUN:
             break
         to_test.append(p)
