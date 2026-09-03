@@ -114,6 +114,14 @@ class SupabaseStorage:
     def __init__(self, url: str, key: str) -> None:
         self.base = f"{url.rstrip('/')}/rest/v1"
         self.key = key
+        # One connection-pooled client for the whole process (reused across
+        # calls instead of opening a fresh connection per request).
+        self._client: httpx.AsyncClient | None = None
+
+    def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(timeout=15)
+        return self._client
 
     def _headers(self, prefer: str = "return=minimal") -> dict[str, str]:
         return {
@@ -124,14 +132,14 @@ class SupabaseStorage:
 
     async def load(self) -> list[dict]:
         try:
-            async with httpx.AsyncClient(timeout=15) as client:
-                r = await client.get(
-                    f"{self.base}/{self.TABLE}",
-                    headers=self._headers(),
-                    params={"select": "*", "order": "id.asc"},
-                )
-                r.raise_for_status()
-                return r.json() or []
+            client = self._get_client()
+            r = await client.get(
+                f"{self.base}/{self.TABLE}",
+                headers=self._headers(),
+                params={"select": "*", "order": "id.asc"},
+            )
+            r.raise_for_status()
+            return r.json() or []
         except Exception as e:
             log.warning(f"  ⚠️ Could not load proxy pool from Supabase: {e}")
             return []
@@ -144,14 +152,14 @@ class SupabaseStorage:
             "source": source or "auto",
         }
         try:
-            async with httpx.AsyncClient(timeout=15) as client:
-                r = await client.post(
-                    f"{self.base}/{self.TABLE}",
-                    headers=self._headers("resolution=merge-duplicates"),
-                    json=body,
-                )
-                if r.status_code not in (200, 201, 409):
-                    log.warning(f"  ⚠️ Proxy upsert HTTP {r.status_code}: {r.text[:160]}")
+            client = self._get_client()
+            r = await client.post(
+                f"{self.base}/{self.TABLE}",
+                headers=self._headers("resolution=merge-duplicates"),
+                json=body,
+            )
+            if r.status_code not in (200, 201, 409):
+                log.warning(f"  ⚠️ Proxy upsert HTTP {r.status_code}: {r.text[:160]}")
         except Exception as e:
             log.warning(f"  ⚠️ Proxy upsert failed: {e}")
 
@@ -210,55 +218,55 @@ class SupabaseStorage:
                     f"and(deactivated_at.is.null,last_checked.lt.{cutoff}))"
                 ),
             }
-            async with httpx.AsyncClient(timeout=15) as client:
-                # Count first (before delete)
-                count_r = await client.get(
-                    f"{self.base}/{self.TABLE}",
-                    headers=self._headers(),
-                    params=filters,
-                )
-                count = 0
-                if count_r.status_code == 200:
-                    count = len(count_r.json() or [])
+            client = self._get_client()
+            # Count first (before delete)
+            count_r = await client.get(
+                f"{self.base}/{self.TABLE}",
+                headers=self._headers(),
+                params=filters,
+            )
+            count = 0
+            if count_r.status_code == 200:
+                count = len(count_r.json() or [])
 
-                # Then delete
-                r = await client.delete(
-                    f"{self.base}/{self.TABLE}",
-                    headers=self._headers(),
-                    params=filters,
-                )
-                if r.status_code in (200, 204):
-                    return count
-                return 0
+            # Then delete
+            r = await client.delete(
+                f"{self.base}/{self.TABLE}",
+                headers=self._headers(),
+                params=filters,
+            )
+            if r.status_code in (200, 204):
+                return count
+            return 0
         except Exception as e:
             log.warning(f"  ⚠️ Cleanup dead proxies failed: {e}")
             return 0
 
     async def _patch(self, host: str, port: int, body: dict) -> None:
         try:
-            async with httpx.AsyncClient(timeout=15) as client:
-                r = await client.patch(
-                    f"{self.base}/{self.TABLE}",
-                    headers=self._headers(),
-                    params={"host": f"eq.{host}", "port": f"eq.{int(port)}"},
-                    json=body,
-                )
-                if r.status_code not in (200, 204):
-                    log.warning(f"  ⚠️ Proxy patch HTTP {r.status_code}: {r.text[:160]}")
+            client = self._get_client()
+            r = await client.patch(
+                f"{self.base}/{self.TABLE}",
+                headers=self._headers(),
+                params={"host": f"eq.{host}", "port": f"eq.{int(port)}"},
+                json=body,
+            )
+            if r.status_code not in (200, 204):
+                log.warning(f"  ⚠️ Proxy patch HTTP {r.status_code}: {r.text[:160]}")
         except Exception as e:
             log.warning(f"  ⚠️ Proxy patch failed: {e}")
 
     async def get_config(self, key: str) -> str | None:
         try:
-            async with httpx.AsyncClient(timeout=15) as client:
-                r = await client.get(
-                    f"{self.base}/{self.CONFIG_TABLE}",
-                    headers=self._headers(),
-                    params={"key": f"eq.{key}", "select": "value"},
-                )
-                r.raise_for_status()
-                data = r.json()
-                return data[0]["value"] if data else None
+            client = self._get_client()
+            r = await client.get(
+                f"{self.base}/{self.CONFIG_TABLE}",
+                headers=self._headers(),
+                params={"key": f"eq.{key}", "select": "value"},
+            )
+            r.raise_for_status()
+            data = r.json()
+            return data[0]["value"] if data else None
         except Exception as e:
             log.warning(f"  ⚠️ Could not read scraper config '{key}': {e}")
             return None
@@ -270,15 +278,15 @@ class SupabaseStorage:
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
         try:
-            async with httpx.AsyncClient(timeout=15) as client:
-                r = await client.post(
-                    f"{self.base}/{self.CONFIG_TABLE}",
-                    headers=self._headers("resolution=merge-duplicates"),
-                    params={"on_conflict": "key"},
-                    json=body,
-                )
-                if r.status_code not in (200, 201, 409):
-                    log.warning(f"  ⚠️ Config upsert HTTP {r.status_code}: {r.text[:160]}")
+            client = self._get_client()
+            r = await client.post(
+                f"{self.base}/{self.CONFIG_TABLE}",
+                headers=self._headers("resolution=merge-duplicates"),
+                params={"on_conflict": "key"},
+                json=body,
+            )
+            if r.status_code not in (200, 201, 409):
+                log.warning(f"  ⚠️ Config upsert HTTP {r.status_code}: {r.text[:160]}")
         except Exception as e:
             log.warning(f"  ⚠️ Config upsert failed: {e}")
 
@@ -572,7 +580,12 @@ async def refresh_pool(
 
     # 3. Build test list: newly scraped proxies FIRST, then pool proxies that need testing.
     #    Cap total tests at MAX_TEST_PER_RUN (3).
-    rows = await storage.load()
+    # Reuse the snapshot loaded above instead of re-reading: this run is the
+    # only writer (single-instance rule), new rows were appended to `known` and
+    # are already queued first in `to_test`, and in-place mutations (secret /
+    # is_active / last_checked) are visible on the same dict objects. Saves one
+    # REST round-trip per refresh.
+    rows = rows_before
     now = datetime.now(timezone.utc)
 
     # First: newly added + re-sighted proxies (both unverified right now)

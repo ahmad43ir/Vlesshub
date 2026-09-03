@@ -180,16 +180,23 @@ export async function getProxiesByIds(supabase: any, ids: number[]): Promise<Pro
 }
 
 export async function bulkDeleteByIds(supabase: any, table: string, ids: number[]): Promise<number> {
-  let deleted = 0;
-  for (const id of ids) {
-    try {
-      const { error } = await supabase.from(table).delete().eq('id', id);
-      if (!error) deleted++;
-    } catch (e) {
-      console.warn('[db] delete id', id, 'from', table, 'threw:', (e as Error).message);
+  // Single batched DELETE (IN) instead of one round-trip per id.
+  try {
+    const { error, count } = await supabase
+      .from(table)
+      .delete({ count: 'exact' })
+      .in('id', ids);
+    if (error) {
+      console.warn('[db] bulk delete from', table, 'failed:', error.message);
+      return 0;
     }
+    // count may be null when the header isn't echoed — fall back to the
+    // number of ids we asked to delete.
+    return count ?? ids.length;
+  } catch (e) {
+    console.warn('[db] bulk delete from', table, 'threw:', (e as Error).message);
+    return 0;
   }
-  return deleted;
 }
 
 export async function deleteAllServers(supabase: any): Promise<boolean> {

@@ -10,10 +10,6 @@
 <link rel="manifest" href="manifest.json"/>
 <link rel="apple-touch-icon" href="icons/icon-192.png"/>
 <!-- Desktop: allow full use (ads hidden via CSS media query below) -->
-<!-- Yektanet analytics + ad (proxied) -->
-<script>
-!function(e,t,n){e.yektanetAnalyticsObject=n,e[n]=e[n]||function(){e[n].q.push(arguments)},e[n].q=e[n].q||[];var a=t.getElementsByTagName("head")[0],r=new Date,c="https://yektanet-proxy.mobileahmad43-a18.workers.dev/yektanet/superscript/BNV1QlRY/native-com.chobgroup.vlesshub-48190/yn_pub.js?v="+r.getFullYear().toString()+"0"+r.getMonth()+"0"+r.getDate()+"0"+r.getHours(),s=t.createElement("link");s.rel="preload",s.as="script",s.href=c,a.appendChild(s);var l=t.createElement("script");l.async=!0,l.src=c,a.appendChild(l)}(window,document,"yektanet");
-</script>
 <style>
 *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -137,7 +133,7 @@ a{color:var(--neon);text-decoration:none}
 
 <div class="toast" id="toast"></div>
 
-<!-- Yektanet full-screen ad overlay -->
+<!-- Interstitial overlay (every 3rd action; Adsterra content when wired) -->
 <div class="ad-overlay" id="adOverlay">
   <button class="ad-close" id="adClose">✕</button>
   <div class="ad-container" id="adContainer"></div>
@@ -171,11 +167,6 @@ a{color:var(--neon);text-decoration:none}
 </div>
 
 <script>
-// ── Ad config ──
-// NOTE: the Yektanet superscript loaded below is the analytics/retargeting
-// SDK only — it does NOT serve display ads. The interstitial overlay shows
-// Adsterra content once the Social Bar zone ID is wired in (see bottom).
-const AD_POS_ID = '122583';
 let actionCount = parseInt(localStorage.getItem('vh_ad_count') || '0');
 
 // ── Config ──
@@ -202,8 +193,6 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('installBtn').addEventListener('click', installApp);
   document.getElementById('adClose').addEventListener('click', closeAd);
   window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); window._deferredPrompt = e; document.getElementById('installBanner').classList.add('show'); });
-  // Try to load Yektanet ad after a short delay
-  setTimeout(loadYektanetAd, 2000);
 });
 
 // ── Version gate ──
@@ -261,7 +250,7 @@ function renderProxies() {
 // ── Links (servers) ──
 async function loadServers() {
   try {
-    const r = await fetch(`${SB}/rest/v1/servers?select=*&order=created_at.desc`, { headers });
+    const r = await fetch(`${SB}/rest/v1/servers?select=name,flag,country,config,type,source_channel,created_at&order=created_at.desc&limit=500`, { headers });
     servers = (await r.json()).filter(s => !hiddenLinks.includes(s.config));
     renderServers();
   } catch(e) {
@@ -295,7 +284,7 @@ function showMoreFiles() { visibleFiles += 5; renderFiles(); }
 // ── Files ──
 async function loadFiles() {
   try {
-    const r = await fetch(`${SB}/rest/v1/vpn_files?select=*&order=uploaded_at.desc`, { headers });
+    const r = await fetch(`${SB}/rest/v1/vpn_files?select=id,filename,mime_type,size_bytes,uploaded_at,is_encrypted,config_count,source_channel&order=uploaded_at.desc&limit=500`, { headers });
     files = (await r.json()).filter(f => !hiddenFiles.includes(f.id));
     renderFiles();
   } catch(e) {
@@ -382,19 +371,6 @@ function blobTypeFor(filename) {
 }
 
 // ── Helpers ──
-// ── Yektanet ad ──
-function loadYektanetAd() {
-  // Ad slot placeholder. The Yektanet superscript served on this page is
-  // the analytics/retargeting SDK only — it does NOT serve display ads, so
-  // nothing renders here until a real web publisher spot script (Yektanet
-  // publishers panel or another network) is wired in.
-  const container = document.getElementById('adContainer');
-  if (container.querySelector('[data-pos-id]')) return; // already loaded
-  const slot = document.createElement('div');
-  slot.setAttribute('data-pos-id', AD_POS_ID);
-  slot.style.cssText = 'width:100%;min-height:250px;display:flex;align-items:center;justify-content:center;';
-  container.appendChild(slot);
-}
 
 function maybeShowAd(callback) {
   actionCount++;
@@ -410,11 +386,28 @@ function maybeShowAd(callback) {
   }
 }
 
+// Approved Adsterra Social Bar zone — re-injected each time the
+// interstitial overlay opens so the widget (re)initializes above it.
+// On mobile the Social Bar renders as a fullscreen takeover.
+const SOCIAL_BAR_ZONE = 'https://pl31139270.profitableratecpmnetwork.com/3c/26/8b/3c268bc9c635f59789c859f9de8c368c.js';
+
+function triggerSocialBar() {
+  const host = document.getElementById('adContainer');
+  // Remove any previously injected copy so each trigger re-runs its init.
+  host.querySelectorAll('script[data-social-bar]').forEach((el) => el.remove());
+  const s = document.createElement('script');
+  s.src = SOCIAL_BAR_ZONE;
+  s.async = true;
+  s.dataset.socialBar = '1';
+  host.appendChild(s);
+}
+
 function showAd(callback) {
   const overlay = document.getElementById('adOverlay');
   overlay.classList.add('show');
+  triggerSocialBar();
   window._adCallback = callback;
-  // Auto-close after 5s if no interaction
+  // Auto-close after 8s if no interaction
   setTimeout(() => { if (overlay.classList.contains('show')) closeAd(); }, 8000);
 }
 

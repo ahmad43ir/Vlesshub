@@ -1035,11 +1035,12 @@ async function handleCallback(ctx: BotContext, query: any): Promise<void> {
 
   if (data === 'proxy:selectall') {
     await tg.answerCallbackQuery(ctx.token, query.id);
-    const proxies = await listProxies(ctx.supabase, 'id');
-    state.selected.proxies = proxies.map((p) => p.id);
+    // One fetch instead of two — ids come from the same full row set.
+    const proxies = await listProxies(ctx.supabase);
+    const sel = new Set(proxies.map((p) => p.id));
+    state.selected.proxies = [...sel];
     await saveState(ctx.supabase, state);
-    const full = await listProxies(ctx.supabase);
-    const view = buildProxyList(full, new Set(state.selected.proxies));
+    const view = buildProxyList(proxies, sel);
     await edit(view.text, { reply_markup: view.reply_markup });
     return;
   }
